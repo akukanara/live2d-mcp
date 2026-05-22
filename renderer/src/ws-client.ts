@@ -12,6 +12,11 @@ export type CommandType =
   | 'setParameter'
   | 'reset'
   | 'getInfo'
+  | 'startSpeak'
+  | 'audioChunk'
+  | 'endSpeak'
+  | 'startLipSyncOnly'
+  | 'lipSync'
 
 export interface Command {
   requestId: string

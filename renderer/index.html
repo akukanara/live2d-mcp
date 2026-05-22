@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="id">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -31,6 +31,304 @@
 
       canvas {
         display: block;
+      }
+
+      #main-layout {
+        display: flex;
+        gap: 30px;
+        align-items: center;
+        justify-content: center;
+        width: 1040px;
+        max-width: 95vw;
+        height: 600px;
+        margin-top: 40px;
+      }
+
+      #left-section {
+        flex-shrink: 0;
+        position: relative;
+      }
+
+      #right-section {
+        flex-shrink: 0;
+      }
+
+      /* Obrolan Panel */
+      #chat-panel {
+        width: 400px;
+        height: 600px;
+        background: rgba(20, 20, 35, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.5);
+        position: relative;
+      }
+
+      .chat-header {
+        height: 56px;
+        padding: 0 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: rgba(0, 0, 0, 0.25);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      }
+
+      .chat-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .chat-status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #ff4444;
+        box-shadow: 0 0 8px #ff4444;
+        transition: all 0.3s;
+      }
+
+      .chat-status-dot.connected {
+        background: #44ff88;
+        box-shadow: 0 0 8px #44ff88;
+      }
+
+      .chat-title h3 {
+        font-size: 15px;
+        font-weight: 600;
+        color: #fff;
+      }
+
+      .chat-actions {
+        display: flex;
+        gap: 10px;
+      }
+
+      .chat-actions button {
+        background: none;
+        border: none;
+        color: #aaa;
+        cursor: pointer;
+        font-size: 16px;
+        padding: 4px;
+        border-radius: 4px;
+        transition: all 0.15s;
+      }
+
+      .chat-actions button:hover {
+        background: rgba(255, 255, 255, 0.08);
+        color: #fff;
+      }
+
+      .chat-messages {
+        flex: 1;
+        padding: 16px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      /* Scrollbar */
+      .chat-messages::-webkit-scrollbar {
+        width: 6px;
+      }
+      .chat-messages::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.15);
+        border-radius: 3px;
+      }
+
+      .message {
+        display: flex;
+        max-width: 85%;
+      }
+
+      .message.user {
+        align-self: flex-end;
+      }
+
+      .message.assistant {
+        align-self: flex-start;
+      }
+
+      .msg-bubble {
+        padding: 10px 14px;
+        border-radius: 12px;
+        font-size: 13px;
+        line-height: 1.5;
+        word-break: break-word;
+      }
+
+      .message.user .msg-bubble {
+        background: linear-gradient(135deg, #64b4ff, #8f64ff);
+        color: #fff;
+        border-bottom-right-radius: 2px;
+        box-shadow: 0 4px 12px rgba(100, 180, 255, 0.25);
+      }
+
+      .message.assistant .msg-bubble {
+        background: rgba(255, 255, 255, 0.08);
+        color: #e0e0e0;
+        border-bottom-left-radius: 2px;
+        border: 1px solid rgba(255, 255, 255, 0.04);
+      }
+
+      .chat-input-area {
+        padding: 12px 16px;
+        display: flex;
+        gap: 8px;
+        background: rgba(0, 0, 0, 0.15);
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+      }
+
+      #chat-input {
+        flex: 1;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        padding: 8px 12px;
+        color: #fff;
+        font-size: 13px;
+        outline: none;
+        transition: all 0.2s;
+      }
+
+      #chat-input:focus {
+        border-color: #64b4ff;
+        background: rgba(255, 255, 255, 0.08);
+        box-shadow: 0 0 8px rgba(100, 180, 255, 0.2);
+      }
+
+      #chat-send {
+        background: linear-gradient(135deg, #64b4ff, #8f64ff);
+        border: none;
+        color: #fff;
+        padding: 8px 16px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: opacity 0.2s;
+      }
+
+      #chat-send:hover {
+        opacity: 0.9;
+        box-shadow: 0 0 12px rgba(100, 180, 255, 0.3);
+      }
+
+      /* Settings Drawer */
+      .settings-drawer {
+        position: absolute;
+        top: 0;
+        right: -100%;
+        width: 100%;
+        height: 100%;
+        background: rgba(15, 15, 28, 0.95);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        z-index: 150;
+        display: flex;
+        flex-direction: column;
+        transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        border-left: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .settings-drawer.open {
+        right: 0;
+      }
+
+      .drawer-header {
+        height: 56px;
+        padding: 0 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .drawer-header h4 {
+        font-size: 14px;
+        font-weight: 600;
+        color: #fff;
+      }
+
+      #close-settings-btn {
+        background: none;
+        border: none;
+        color: #aaa;
+        font-size: 20px;
+        cursor: pointer;
+        transition: color 0.15s;
+      }
+
+      #close-settings-btn:hover {
+        color: #fff;
+      }
+
+      .drawer-body {
+        flex: 1;
+        padding: 16px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .form-group {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+      }
+
+      .form-group label {
+        font-size: 11px;
+        color: #aaa;
+        font-weight: 500;
+      }
+
+      .form-group input,
+      .form-group select,
+      .form-group textarea {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 6px;
+        padding: 8px;
+        color: #fff;
+        font-size: 12px;
+        outline: none;
+        transition: all 0.2s;
+        font-family: inherit;
+      }
+
+      .form-group input:focus,
+      .form-group select:focus,
+      .form-group textarea:focus {
+        border-color: #64b4ff;
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .save-btn {
+        background: linear-gradient(135deg, #44ff88, #22bb66);
+        border: none;
+        color: #121212;
+        padding: 10px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        margin-top: 10px;
+        transition: opacity 0.2s;
+      }
+
+      .save-btn:hover {
+        opacity: 0.9;
+        box-shadow: 0 0 12px rgba(68, 255, 136, 0.3);
       }
 
       #status-bar {
@@ -343,34 +641,101 @@
     <div id="status-bar">
       <div class="status-indicator">
         <div class="dot" id="ws-dot"></div>
-        <span id="ws-status">WebSocket 未连接</span>
+        <span id="ws-status">WebSocket Terputus</span>
       </div>
       <div class="status-indicator">
         <div class="dot" id="model-dot"></div>
-        <span id="model-status">模型未加载</span>
+        <span id="model-status">Model Belum Dimuat</span>
       </div>
-      <div id="current-state">表情: - | 动作: -</div>
+      <div id="current-state">Ekspresi: - | Gerakan: -</div>
     </div>
 
-    <div id="canvas-container">
-      <canvas id="live2d-canvas"></canvas>
+    <div id="main-layout">
+      <div id="left-section">
+        <div id="canvas-container">
+          <canvas id="live2d-canvas"></canvas>
+        </div>
+      </div>
+      
+      <div id="right-section">
+        <div id="chat-panel">
+          <div class="chat-header">
+            <div class="chat-title">
+              <span class="chat-status-dot" id="chat-status-dot"></span>
+              <h3>Obrolan Hiyori</h3>
+            </div>
+            <div class="chat-actions">
+              <button id="clear-chat-btn" title="Hapus Obrolan">🗑️</button>
+              <button id="settings-btn" title="Setelan AI">⚙️</button>
+            </div>
+          </div>
+          
+          <div id="chat-messages" class="chat-messages">
+            <div class="message assistant">
+              <div class="msg-bubble">Halo! Saya Hiyori. Senang bertemu denganmu! Ada yang ingin kamu tanyakan padaku? 😊</div>
+            </div>
+          </div>
+          
+          <div class="chat-input-area">
+            <input type="text" id="chat-input" placeholder="Ketik pesan untuk Hiyori..." autocomplete="off">
+            <button id="chat-send">Kirim</button>
+          </div>
+
+          <!-- Settings Drawer (Slides in on top of chat) -->
+          <div id="settings-drawer" class="settings-drawer">
+            <div class="drawer-header">
+              <h4>Setelan Agen AI</h4>
+              <button id="close-settings-btn">&times;</button>
+            </div>
+            <div class="drawer-body">
+              <div class="form-group">
+                <label for="settings-provider">Provider AI</label>
+                <select id="settings-provider">
+                  <option value="groq">Groq</option>
+                  <option value="openai">OpenAI / Compatible</option>
+                  <option value="gemini">Google Gemini</option>
+                  <option value="anthropic">Anthropic Claude</option>
+                  <option value="alibaba">Alibaba Qwen</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="settings-key">API Key</label>
+                <input type="password" id="settings-key" placeholder="Masukkan API Key...">
+              </div>
+              <div class="form-group">
+                <label for="settings-endpoint">Endpoint API</label>
+                <input type="text" id="settings-endpoint" placeholder="Endpoint URL...">
+              </div>
+              <div class="form-group">
+                <label for="settings-model">Nama Model</label>
+                <input type="text" id="settings-model" placeholder="Model ID...">
+              </div>
+              <div class="form-group">
+                <label for="settings-prompt">System Prompt</label>
+                <textarea id="settings-prompt" rows="5" placeholder="Instruksi sistem..."></textarea>
+              </div>
+              <button id="save-settings-btn" class="save-btn">Simpan Setelan</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- 调试面板（底部抽屉，默认折叠） -->
     <div id="debug-panel">
       <div class="debug-header">
         <div class="debug-tabs">
-          <button class="debug-tab active" data-tab="motions">动作</button>
-          <button class="debug-tab" data-tab="expressions">表情</button>
-          <button class="debug-tab" data-tab="lookat">视线</button>
-          <button class="debug-tab" data-tab="log">日志</button>
+          <button class="debug-tab active" data-tab="motions">Gerakan</button>
+          <button class="debug-tab" data-tab="expressions">Ekspresi</button>
+          <button class="debug-tab" data-tab="lookat">Tatapan</button>
+          <button class="debug-tab" data-tab="log">Log</button>
         </div>
         <div class="debug-header-right">
           <label class="debug-hitarea-label">
             <input type="checkbox" id="hitarea-toggle"> HitArea
           </label>
-          <button class="debug-reset-btn" id="debug-reset">重置</button>
-          <button id="debug-toggle-btn">▲ 展开</button>
+          <button class="debug-reset-btn" id="debug-reset">Reset</button>
+          <button id="debug-toggle-btn">▲ Buka</button>
         </div>
       </div>
       <div class="debug-body">
@@ -391,7 +756,7 @@
             <input type="range" id="look-y" min="-1" max="1" step="0.05" value="0">
             <span id="look-y-val">0.00</span>
           </div>
-          <label class="mouse-follow-label"><input type="checkbox" id="mouse-follow" checked> 跟随鼠标</label>
+          <label class="mouse-follow-label"><input type="checkbox" id="mouse-follow" checked> Ikuti Mouse</label>
         </div>
         <div class="debug-pane" id="pane-log">
           <div id="debug-click-log"></div>
@@ -405,11 +770,11 @@
     </div>
 
     <div id="model-load-error">
-      <h3>模型加载失败</h3>
-      <p>请确认已将 Hiyori 模型文件放置在 <code>public/model/HiyoriPro/</code> 目录，<br/>
-      并将 <code>live2dcubismcore.min.js</code> 放置在 <code>public/</code> 目录。</p>
+      <h3>Gagal Memuat Model</h3>
+      <p>Pastikan Anda telah meletakkan file model Hiyori di direktori <code>public/model/HiyoriPro/</code>, <br/>
+      dan meletakkan <code>live2dcubismcore.min.js</code> di direktori <code>public/</code>.</p>
       <p style="margin-top:10px">
-        模型下载：<a href="https://www.live2d.com/en/download/sample-data/" target="_blank">Live2D 官方示例</a>
+        Unduh Model: <a href="https://www.live2d.com/en/download/sample-data/" target="_blank">Sampel Resmi Live2D</a>
       </p>
     </div>
 

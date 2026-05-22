@@ -29,21 +29,23 @@ const debugResetBtn = document.getElementById('debug-reset') as HTMLButtonElemen
 const debugClickLog = document.getElementById('debug-click-log') as HTMLDivElement
 const hitareaToggle = document.getElementById('hitarea-toggle') as HTMLInputElement
 const mouseFollowCheckbox = document.getElementById('mouse-follow') as HTMLInputElement
+const chatStatusDot = document.getElementById('chat-status-dot') as HTMLSpanElement
+
 
 let currentExpression = '-'
 let currentMotion = '-'
 
 const MOTION_NAMES: Record<string, string> = {
-  'Idle:0': '待机',
-  'Idle:1': '待机 2',
-  'Idle:2': '待机 3',
-  'Flick:0': '拨动',
-  'FlickDown:0': '低头',
-  'FlickUp:0': '抬头',
-  'Tap:0': '点击',
-  'Tap:1': '点击反应',
-  'Tap@Body:0': '触摸身体',
-  'Flick@Body:0': '挥手 (wave)',
+  'Idle:0': 'Siaga',
+  'Idle:1': 'Siaga 2',
+  'Idle:2': 'Siaga 3',
+  'Flick:0': 'Kibas',
+  'FlickDown:0': 'Menunduk',
+  'FlickUp:0': 'Menengadah',
+  'Tap:0': 'Ketukan',
+  'Tap:1': 'Reaksi Ketuk',
+  'Tap@Body:0': 'Sentuh Tubuh',
+  'Flick@Body:0': 'Melambaikan Tangan (wave)',
 }
 
 function motionLabel(group: string, index?: number): string {
@@ -52,7 +54,7 @@ function motionLabel(group: string, index?: number): string {
 }
 
 function updateStateBar() {
-  currentStateEl.textContent = `表情: ${currentExpression} | 动作: ${currentMotion}`
+  currentStateEl.textContent = `Ekspresi: ${currentExpression} | Gerakan: ${currentMotion}`
 }
 
 // 点击区域 → 动作分组映射
@@ -141,13 +143,13 @@ function initMouseFollow(app: Live2DApp) {
 }
 
 function initDebugPanel(app: Live2DApp) {
-  // 展开/收起：仅 toggle 按钮触发
+  // Buka/Tutup: Hanya dipicu oleh tombol toggle
   debugToggleBtn.addEventListener('click', () => {
     const expanded = debugPanel.classList.toggle('expanded')
-    debugToggleBtn.textContent = expanded ? '▼ 收起' : '▲ 展开'
+    debugToggleBtn.textContent = expanded ? '▼ Tutup' : '▲ Buka'
   })
 
-  // Tab 切换
+  // Perpindahan Tab
   const tabs = debugHeader.querySelectorAll<HTMLButtonElement>('.debug-tab')
   tabs.forEach((tab) => {
     tab.addEventListener('click', () => {
@@ -157,10 +159,10 @@ function initDebugPanel(app: Live2DApp) {
       debugPanel.querySelectorAll<HTMLDivElement>('.debug-pane').forEach((p) => {
         p.classList.toggle('active', p.id === paneId)
       })
-      // 切换 tab 时若面板未展开则自动展开
+      // Buka panel secara otomatis jika belum terbuka saat berpindah tab
       if (!debugPanel.classList.contains('expanded')) {
         debugPanel.classList.add('expanded')
-        debugToggleBtn.textContent = '▼ 收起'
+        debugToggleBtn.textContent = '▼ Tutup'
       }
     })
   })
@@ -186,7 +188,7 @@ function initDebugPanel(app: Live2DApp) {
       debugExpressionsEl.appendChild(btn)
     }
   } else {
-    debugExpressionsEl.textContent = '无可用表情'
+    debugExpressionsEl.textContent = 'Tidak ada ekspresi tersedia'
     debugExpressionsEl.style.color = '#555'
     debugExpressionsEl.style.fontSize = '11px'
   }
@@ -259,6 +261,276 @@ function setupAudioUnlock() {
   document.addEventListener('keydown', unlock)
 }
 
+function initChatPanel(app: Live2DApp) {
+  const API_BASE = 'http://localhost:3000/api'
+
+  const DEFAULT_SYSTEM_PROMPT = 'Anda adalah Hiyori, asisten virtual Live2D yang ramah, sopan, dan ekspresif. Jawab pertanyaan pengguna dalam bahasa Indonesia yang natural, hangat, dan menyenangkan. Selalu jawab dengan format JSON terstruktur yang berisi teks respon Anda ("text"), emosi ekspresi wajah ("expression": salah satu dari: happy/sad/angry/surprised/neutral), dan gerakan animasi tubuh ("motion": salah satu dari: TapBody/Idle/Flick/dsb, default adalah TapBody atau Idle). Contoh format respons:\n{\n  "text": "Halo! Ada yang bisa saya bantu hari ini?",\n  "expression": "happy",\n  "motion": "Tap@Body"\n}';
+
+  const PROVIDER_PRESETS: Record<string, { endpoint: string; model: string }> = {
+    groq: {
+      endpoint: 'https://api.groq.com/openai/v1/chat/completions',
+      model: 'llama3-8b-8192',
+    },
+    openai: {
+      endpoint: 'https://api.openai.com/v1/chat/completions',
+      model: 'gpt-4o-mini',
+    },
+    gemini: {
+      endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+      model: 'gemini-1.5-flash',
+    },
+    anthropic: {
+      endpoint: 'https://api.anthropic.com/v1/messages',
+      model: 'claude-3-5-sonnet-20241022',
+    },
+    alibaba: {
+      endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+      model: 'qwen-turbo',
+    },
+  }
+
+  const chatMessages = document.getElementById('chat-messages') as HTMLDivElement
+  const chatInput = document.getElementById('chat-input') as HTMLInputElement
+  const chatSend = document.getElementById('chat-send') as HTMLButtonElement
+  const clearChatBtn = document.getElementById('clear-chat-btn') as HTMLButtonElement
+  const settingsBtn = document.getElementById('settings-btn') as HTMLButtonElement
+  const settingsDrawer = document.getElementById('settings-drawer') as HTMLDivElement
+  const closeSettingsBtn = document.getElementById('close-settings-btn') as HTMLButtonElement
+  const saveSettingsBtn = document.getElementById('save-settings-btn') as HTMLButtonElement
+
+  const settingsProvider = document.getElementById('settings-provider') as HTMLSelectElement
+  const settingsKey = document.getElementById('settings-key') as HTMLInputElement
+  const settingsEndpoint = document.getElementById('settings-endpoint') as HTMLInputElement
+  const settingsModel = document.getElementById('settings-model') as HTMLInputElement
+  const settingsPrompt = document.getElementById('settings-prompt') as HTMLTextAreaElement
+
+  // Load existing settings
+  async function loadSettings() {
+    try {
+      const res = await fetch(`${API_BASE}/settings`)
+      if (!res.ok) throw new Error('Gagal mengambil setelan')
+      const settings = await res.json()
+      
+      settingsProvider.value = settings.provider || 'groq'
+      settingsKey.value = settings.api_key || ''
+      
+      const rawEndpoint = settings.endpoint || ''
+      settingsEndpoint.value = rawEndpoint === 'https://api.groq.com/openai/v1' 
+        ? 'https://api.groq.com/openai/v1/chat/completions' 
+        : rawEndpoint
+        
+      settingsModel.value = settings.model || ''
+      settingsPrompt.value = settings.system_prompt || DEFAULT_SYSTEM_PROMPT
+    } catch (err) {
+      console.error('[Settings] Error loading settings:', err)
+    }
+  }
+
+  // Load settings on startup
+  loadSettings()
+
+  // Auto-populate on provider change
+  settingsProvider.addEventListener('change', () => {
+    const provider = settingsProvider.value
+    const preset = PROVIDER_PRESETS[provider]
+    if (preset) {
+      settingsEndpoint.value = preset.endpoint
+      settingsModel.value = preset.model
+      if (!settingsPrompt.value.trim()) {
+        settingsPrompt.value = DEFAULT_SYSTEM_PROMPT
+      }
+    }
+  })
+
+  // Open settings
+  settingsBtn.addEventListener('click', () => {
+    settingsDrawer.classList.add('open')
+    loadSettings()
+  })
+
+  // Close settings
+  closeSettingsBtn.addEventListener('click', () => {
+    settingsDrawer.classList.remove('open')
+  })
+
+  // Save settings
+  saveSettingsBtn.addEventListener('click', async () => {
+    const provider = settingsProvider.value
+    const api_key = settingsKey.value.trim()
+    const endpoint = settingsEndpoint.value.trim()
+    const model = settingsModel.value.trim()
+    const system_prompt = settingsPrompt.value.trim()
+
+    saveSettingsBtn.disabled = true
+    saveSettingsBtn.textContent = 'Menyimpan...'
+
+    try {
+      const res = await fetch(`${API_BASE}/settings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          provider,
+          api_key,
+          endpoint,
+          model,
+          system_prompt,
+        }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Gagal menyimpan setelan')
+      }
+
+      await loadSettings()
+      settingsDrawer.classList.remove('open')
+    } catch (err: any) {
+      alert(`Gagal menyimpan setelan: ${err.message}`)
+    } finally {
+      saveSettingsBtn.disabled = false
+      saveSettingsBtn.textContent = 'Simpan Setelan'
+    }
+  })
+
+  // Clear chat history
+  clearChatBtn.addEventListener('click', async () => {
+    if (!confirm('Apakah Anda yakin ingin menghapus semua riwayat obrolan?')) return
+
+    try {
+      const res = await fetch(`${API_BASE}/chat/clear`, {
+        method: 'POST',
+      })
+      if (!res.ok) throw new Error('Gagal menghapus riwayat')
+
+      chatMessages.innerHTML = `
+        <div class="message assistant">
+          <div class="msg-bubble">Halo! Saya Hiyori. Senang bertemu denganmu! Ada yang ingin kamu tanyakan padaku? 😊</div>
+        </div>
+      `
+    } catch (err: any) {
+      alert(`Gagal menghapus obrolan: ${err.message}`)
+    }
+  })
+
+  // Message UI Helpers
+  function appendMessage(sender: 'user' | 'assistant', text: string) {
+    const msgDiv = document.createElement('div')
+    msgDiv.className = `message ${sender}`
+    
+    const bubbleDiv = document.createElement('div')
+    bubbleDiv.className = 'msg-bubble'
+    bubbleDiv.textContent = text
+    
+    msgDiv.appendChild(bubbleDiv)
+    chatMessages.appendChild(msgDiv)
+    chatMessages.scrollTop = chatMessages.scrollHeight
+  }
+
+  function appendTypingIndicator() {
+    const msgDiv = document.createElement('div')
+    msgDiv.className = 'message assistant'
+    
+    const bubbleDiv = document.createElement('div')
+    bubbleDiv.className = 'msg-bubble'
+    bubbleDiv.innerHTML = '<span style="opacity: 0.6">Hiyori sedang mengetik...</span>'
+    
+    msgDiv.appendChild(bubbleDiv)
+    chatMessages.appendChild(msgDiv)
+    chatMessages.scrollTop = chatMessages.scrollHeight
+    return msgDiv
+  }
+
+  // Web Speech Fallback TTS playing
+  function playTTS(text: string, emotion: string) {
+    if (!('speechSynthesis' in window)) {
+      console.warn('Speech synthesis not supported')
+      return
+    }
+
+    window.speechSynthesis.cancel()
+
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = 'id-ID'
+
+    const voices = window.speechSynthesis.getVoices()
+    const idVoice = voices.find(v => v.lang.startsWith('id') || v.lang.includes('id-ID'))
+    if (idVoice) {
+      utterance.voice = idVoice
+    }
+
+    utterance.pitch = 1.1
+    utterance.rate = 1.05
+
+    // Indonesian speech speed is about 12-15 characters per second
+    const estimatedDuration = (text.length * 80) + 500
+
+    utterance.onstart = () => {
+      app.startLipSyncOnly(estimatedDuration, emotion)
+    }
+
+    utterance.onend = () => {
+      app.stopSpeaking()
+    }
+
+    utterance.onerror = () => {
+      app.stopSpeaking()
+    }
+
+    window.speechSynthesis.speak(utterance)
+  }
+
+  // Send message
+  async function sendMessage() {
+    const message = chatInput.value.trim()
+    if (!message) return
+
+    chatInput.value = ''
+    appendMessage('user', message)
+
+    chatInput.disabled = true
+    chatSend.disabled = true
+    const typingBubble = appendTypingIndicator()
+
+    try {
+      const res = await fetch(`${API_BASE}/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ message }),
+      })
+
+      typingBubble.remove()
+
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Gagal mengirim pesan')
+      }
+
+      const reply = await res.json()
+      appendMessage('assistant', reply.text)
+      playTTS(reply.text, reply.expression || 'neutral')
+    } catch (err: any) {
+      typingBubble.remove()
+      appendMessage('assistant', `Maaf, terjadi kesalahan: ${err.message}`)
+    } finally {
+      chatInput.disabled = false
+      chatSend.disabled = false
+      chatInput.focus()
+    }
+  }
+
+  // Send events
+  chatSend.addEventListener('click', sendMessage)
+  chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      sendMessage()
+    }
+  })
+}
+
 async function main() {
   setupAudioUnlock()
 
@@ -268,19 +540,20 @@ async function main() {
   try {
     await app.init(canvas)
     modelDot.classList.add('connected')
-    modelStatus.textContent = '模型已加载'
+    modelStatus.textContent = 'Model Telah Dimuat'
     console.log('[Main] Live2D app initialized')
     initDebugPanel(app)
     initMouseFollow(app)
     initClickInteraction(app)
+    initChatPanel(app)
 
     hitareaToggle.addEventListener('change', () => {
       app.showHitAreaOverlay(hitareaToggle.checked)
     })
   } catch (e) {
-    modelStatus.textContent = '模型加载失败'
+    modelStatus.textContent = 'Gagal Memuat Model'
     console.error('[Main] Failed to initialize Live2D:', e)
-    // 即使模型加载失败，也尝试连接 WS（方便调试）
+    // Walaupun gagal memuat model, tetap coba hubungkan WS (untuk kemudahan debugging)
   }
 
   // 初始化 WebSocket 客户端
@@ -309,9 +582,10 @@ async function main() {
 
   wsClient.onConnect(() => {
     wsDot.classList.add('connected')
-    wsStatus.textContent = 'WebSocket 已连接'
+    chatStatusDot.classList.add('connected')
+    wsStatus.textContent = 'WebSocket Terhubung'
 
-    // 发送就绪通知，携带模型信息
+    // Kirim notifikasi siap, menyertakan info model
     const modelInfo = app.getModelInfo()
     if (modelInfo) {
       wsClient.sendReady(modelInfo)
@@ -320,7 +594,8 @@ async function main() {
 
   wsClient.onDisconnect(() => {
     wsDot.classList.remove('connected')
-    wsStatus.textContent = 'WebSocket 未连接（重连中...）'
+    chatStatusDot.classList.remove('connected')
+    wsStatus.textContent = 'WebSocket Terputus (Mencoba menghubungkan kembali...)'
   })
 
   wsClient.connect()
