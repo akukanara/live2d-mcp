@@ -568,6 +568,20 @@
         line-height: 1.6;
       }
 
+      #debug-mcp-log {
+        font-size: 11px;
+        font-family: monospace;
+        color: #e0e0e0;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+
+      .mcp-log-entry {
+        line-height: 1.6;
+        word-break: break-all;
+      }
+
       .click-log-entry .log-hit    { color: #64b4ff; }
       .click-log-entry .log-miss   { color: #444; }
       .click-log-entry .log-action { color: #88ffaa; }
@@ -632,6 +646,268 @@
         border: 1px solid rgba(255, 255, 255, 0.08);
         backdrop-filter: blur(4px);
       }
+
+      /* ===== MODEL CATALOG MODAL ===== */
+      #catalog-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.72);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        z-index: 300;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s ease;
+      }
+
+      #catalog-overlay.open {
+        opacity: 1;
+        pointer-events: all;
+      }
+
+      #catalog-modal {
+        width: 680px;
+        max-width: 95vw;
+        max-height: 80vh;
+        background: rgba(16, 16, 32, 0.97);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 20px;
+        box-shadow: 0 24px 64px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(100, 180, 255, 0.08);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        transform: scale(0.95) translateY(16px);
+        transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      #catalog-overlay.open #catalog-modal {
+        transform: scale(1) translateY(0);
+      }
+
+      .catalog-header {
+        padding: 18px 20px 14px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+        flex-shrink: 0;
+      }
+
+      .catalog-header h3 {
+        font-size: 15px;
+        font-weight: 700;
+        color: #fff;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .catalog-header h3 span.catalog-count {
+        font-size: 11px;
+        font-weight: 500;
+        color: #64b4ff;
+        background: rgba(100, 180, 255, 0.12);
+        padding: 2px 8px;
+        border-radius: 20px;
+        border: 1px solid rgba(100, 180, 255, 0.2);
+      }
+
+      #close-catalog-btn {
+        background: none;
+        border: none;
+        color: #666;
+        font-size: 22px;
+        cursor: pointer;
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        transition: all 0.15s;
+      }
+
+      #close-catalog-btn:hover {
+        color: #fff;
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .catalog-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 16px 20px;
+      }
+
+      .catalog-body::-webkit-scrollbar { width: 6px; }
+      .catalog-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+
+      #catalog-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+        gap: 12px;
+      }
+
+      .catalog-card {
+        background: rgba(255, 255, 255, 0.04);
+        border: 1.5px solid rgba(255, 255, 255, 0.07);
+        border-radius: 14px;
+        overflow: hidden;
+        cursor: pointer;
+        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        position: relative;
+      }
+
+      .catalog-card:hover {
+        border-color: rgba(100, 180, 255, 0.5);
+        background: rgba(100, 180, 255, 0.06);
+        transform: translateY(-2px);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 16px rgba(100, 180, 255, 0.1);
+      }
+
+      .catalog-card.active {
+        border-color: #64b4ff;
+        background: rgba(100, 180, 255, 0.1);
+        box-shadow: 0 0 0 2px rgba(100, 180, 255, 0.2), inset 0 0 24px rgba(100, 180, 255, 0.05);
+      }
+
+      .catalog-card.active::after {
+        content: '✓';
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 22px;
+        height: 22px;
+        background: #64b4ff;
+        color: #000;
+        font-size: 12px;
+        font-weight: 700;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 22px;
+        text-align: center;
+      }
+
+      .catalog-card.loading {
+        pointer-events: none;
+        opacity: 0.7;
+      }
+
+      .catalog-thumb {
+        width: 100%;
+        aspect-ratio: 1/1;
+        object-fit: cover;
+        object-position: top center;
+        display: block;
+        background: rgba(255, 255, 255, 0.03);
+        /* Paksa browser pakai ukuran tampil kecil, bukan decode full resolution */
+        max-height: 160px;
+        image-rendering: -webkit-optimize-contrast;
+      }
+
+      .catalog-thumb-placeholder {
+        width: 100%;
+        aspect-ratio: 1/1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(145deg, rgba(100,180,255,0.08) 0%, rgba(143,100,255,0.12) 50%, rgba(255,100,180,0.06) 100%);
+        gap: 6px;
+        color: #666;
+        font-size: 36px;
+        max-height: 160px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .catalog-thumb-placeholder::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(circle at 60% 30%, rgba(100,180,255,0.07), transparent 70%);
+      }
+
+      .catalog-info {
+        padding: 10px 12px;
+      }
+
+      .catalog-name {
+        font-size: 12px;
+        font-weight: 600;
+        color: #e0e0e0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        margin-bottom: 3px;
+      }
+
+      .catalog-desc {
+        font-size: 10px;
+        color: #555;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      #catalog-loading {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 40px;
+        gap: 12px;
+        color: #555;
+        font-size: 13px;
+      }
+
+      .catalog-spinner {
+        width: 32px;
+        height: 32px;
+        border: 3px solid rgba(100, 180, 255, 0.15);
+        border-top-color: #64b4ff;
+        border-radius: 50%;
+        animation: catalog-spin 0.7s linear infinite;
+      }
+
+      @keyframes catalog-spin {
+        to { transform: rotate(360deg); }
+      }
+
+      .catalog-empty {
+        text-align: center;
+        padding: 40px;
+        color: #444;
+        font-size: 13px;
+      }
+
+      #catalog-model-loading-overlay {
+        position: absolute;
+        inset: 0;
+        background: rgba(0,0,0,0.7);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        color: #64b4ff;
+        font-size: 13px;
+        z-index: 10;
+        backdrop-filter: blur(4px);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s;
+        border-radius: 14px;
+      }
+
+      #catalog-model-loading-overlay.visible {
+        opacity: 1;
+        pointer-events: all;
+      }
     </style>
     <!-- Live2D Cubism Core（需手动下载后放到 public/ 目录） -->
     <!-- 从 https://github.com/Live2D/CubismWebSamples 下载 Core 文件 -->
@@ -666,6 +942,7 @@
             </div>
             <div class="chat-actions">
               <button id="clear-chat-btn" title="Hapus Obrolan">🗑️</button>
+              <button id="catalog-btn" title="Ganti Karakter">🎭</button>
               <button id="settings-btn" title="Setelan AI">⚙️</button>
             </div>
           </div>
@@ -714,6 +991,27 @@
                 <label for="settings-prompt">System Prompt</label>
                 <textarea id="settings-prompt" rows="5" placeholder="Instruksi sistem..."></textarea>
               </div>
+              
+              <div class="form-group" style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 15px;">
+                <label style="color: #64b4ff; font-weight: 600;">Pengaturan Suara RVC Lokal</label>
+              </div>
+              <div class="form-group">
+                <label for="settings-pitch">Pitch Shift (Intonasi Suara)</label>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <input type="range" id="settings-pitch" min="-12" max="12" step="1" value="0" style="flex: 1; accent-color: #64b4ff;">
+                  <span id="settings-pitch-val" style="width: 24px; text-align: right; font-size: 12px; color: #aaa;">0</span>
+                </div>
+                <small style="color: #666; font-size: 10px; margin-top: 2px; display: block;">Gunakan +5 s/d +10 untuk suara wanita feminin/cempreng jika suara saat ini terlalu nge-bass/underwater.</small>
+              </div>
+              <div class="form-group">
+                <label for="settings-index-rate">Index Rate (Kemiripan Karakter)</label>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <input type="range" id="settings-index-rate" min="0" max="1" step="0.05" value="0.4" style="flex: 1; accent-color: #64b4ff;">
+                  <span id="settings-index-rate-val" style="width: 28px; text-align: right; font-size: 12px; color: #aaa;">0.40</span>
+                </div>
+                <small style="color: #666; font-size: 10px; margin-top: 2px; display: block;">Gunakan 0.0 jika suara pecah/underwater (mematikan index). Gunakan lebih tinggi untuk timbre orisinal.</small>
+              </div>
+              
               <button id="save-settings-btn" class="save-btn">Simpan Setelan</button>
             </div>
           </div>
@@ -729,6 +1027,7 @@
           <button class="debug-tab" data-tab="expressions">Ekspresi</button>
           <button class="debug-tab" data-tab="lookat">Tatapan</button>
           <button class="debug-tab" data-tab="log">Log</button>
+          <button class="debug-tab" data-tab="mcp">Log MCP</button>
         </div>
         <div class="debug-header-right">
           <label class="debug-hitarea-label">
@@ -761,6 +1060,9 @@
         <div class="debug-pane" id="pane-log">
           <div id="debug-click-log"></div>
         </div>
+        <div class="debug-pane" id="pane-mcp">
+          <div id="debug-mcp-log"></div>
+        </div>
       </div>
     </div>
 
@@ -776,6 +1078,24 @@
       <p style="margin-top:10px">
         Unduh Model: <a href="https://www.live2d.com/en/download/sample-data/" target="_blank">Sampel Resmi Live2D</a>
       </p>
+    </div>
+
+    <!-- Model Catalog Modal -->
+    <div id="catalog-overlay">
+      <div id="catalog-modal">
+        <div class="catalog-header">
+          <h3>🎭 Katalog Karakter <span class="catalog-count" id="catalog-count">0 model</span></h3>
+          <button id="close-catalog-btn">&times;</button>
+        </div>
+        <div class="catalog-body">
+          <div id="catalog-loading">
+            <div class="catalog-spinner"></div>
+            Memuat daftar model...
+          </div>
+          <div id="catalog-grid" style="display:none"></div>
+          <div id="catalog-empty" class="catalog-empty" style="display:none">Tidak ada model ditemukan di folder <code>models/</code></div>
+        </div>
+      </div>
     </div>
 
     <script type="module" src="/src/main.ts"></script>

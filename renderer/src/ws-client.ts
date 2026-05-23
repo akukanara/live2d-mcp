@@ -38,6 +38,7 @@ export class WsClient {
   private commandHandler: CommandHandler | null = null
   private onConnectCallbacks: (() => void)[] = []
   private onDisconnectCallbacks: (() => void)[] = []
+  private onLogCallbacks: ((logType: 'error' | 'ws_recv' | 'ws_send' | 'api', message: string) => void)[] = []
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
   setCommandHandler(handler: CommandHandler): void {
@@ -50,6 +51,10 @@ export class WsClient {
 
   onDisconnect(cb: () => void): void {
     this.onDisconnectCallbacks.push(cb)
+  }
+
+  onLog(cb: (logType: 'error' | 'ws_recv' | 'ws_send' | 'api' | 'rvc', message: string) => void): void {
+    this.onLogCallbacks.push(cb)
   }
 
   connect(): void {
@@ -67,7 +72,13 @@ export class WsClient {
 
     this.ws.onmessage = async (event) => {
       try {
-        const command = JSON.parse(event.data as string) as Command
+        const msg = JSON.parse(event.data as string)
+        if (msg.type === 'mcpLog') {
+          this.onLogCallbacks.forEach((cb) => cb(msg.logType, msg.message))
+          return
+        }
+
+        const command = msg as Command
         if (!this.commandHandler) return
 
         const response = await this.commandHandler(command)
