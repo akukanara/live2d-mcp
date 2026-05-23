@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import { sendCommand, isRendererConnected } from '../ws-bridge.js'
+import { sendCommand, isRendererConnected, logMcpActivityToFrontend } from '../ws-bridge.js'
 import { setMotion } from '../state.js'
 
 export function registerMotionTools(server: McpServer): void {
@@ -26,6 +26,7 @@ export function registerMotionTools(server: McpServer): void {
         .describe('优先级：1=低、2=普通（默认）、3=强制。高优先级会打断正在播放的动作。'),
     },
     async ({ group, index, priority = 2 }) => {
+      logMcpActivityToFrontend('api', `MCP Tool Called - play_motion(group: "${group}", index: ${index ?? 'rand'}, priority: ${priority})`)
       if (!isRendererConnected()) {
         return {
           content: [

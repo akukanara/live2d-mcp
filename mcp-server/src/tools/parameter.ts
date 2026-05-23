@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import { sendCommand, isRendererConnected } from '../ws-bridge.js'
+import { sendCommand, isRendererConnected, logMcpActivityToFrontend } from '../ws-bridge.js'
 import { setParameter, setLookAt } from '../state.js'
 
 export function registerParameterTools(server: McpServer): void {
@@ -21,6 +21,7 @@ export function registerParameterTools(server: McpServer): void {
         .describe('垂直方向：-1.0 = 看下方，0 = 看正前方，1.0 = 看上方'),
     },
     async ({ x, y }) => {
+      logMcpActivityToFrontend('api', `MCP Tool Called - look_at(x: ${x.toFixed(2)}, y: ${y.toFixed(2)})`)
       if (!isRendererConnected()) {
         return {
           content: [
@@ -74,6 +75,7 @@ export function registerParameterTools(server: McpServer): void {
         .describe('参数值，通常范围 0.0-1.0，部分参数如头部旋转范围为 -30 到 30'),
     },
     async ({ param_id, value }) => {
+      logMcpActivityToFrontend('api', `MCP Tool Called - set_parameter(param_id: "${param_id}", value: ${value})`)
       if (!isRendererConnected()) {
         return {
           content: [

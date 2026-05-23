@@ -4,7 +4,8 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import { sendCommand, isRendererConnected } from '../ws-bridge.js'
+import { sendCommand, isRendererConnected, logMcpActivityToFrontend } from '../ws-bridge.js'
+import { getState } from '../state.js'
 
 // API 配置 - 从环境变量读取
 const TENCENT_SECRET_ID = process.env.TENCENT_SECRET_ID || ''
@@ -154,6 +155,61 @@ async function speakWithTencentTTS(
   }
 }
 
+async function speakWithLocalRVC(
+  text: string,
+  character: string,
+  pitch_change?: number,
+  index_rate?: number,
+  rms_mix_rate?: number,
+  protect?: number
+): Promise<{ success: boolean; audioBase64?: string; duration?: number; lipSyncData?: Array<{ time: number; value: number }>; error?: string }> {
+  try {
+    const response = await fetch('http://localhost:3000/api/tts', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        text,
+        character,
+        pitch_change: pitch_change !== undefined ? pitch_change : 0,
+        index_rate: index_rate !== undefined ? index_rate : 0.4,
+        rms_mix_rate: rms_mix_rate !== undefined ? rms_mix_rate : 0.5,
+        protect: protect !== undefined ? protect : 0.33
+      }),
+    })
+
+    if (!response.ok) {
+      const errText = await response.text()
+      throw new Error(`RVC API Error: ${response.status} - ${errText}`)
+    }
+
+    const data: any = await response.json()
+    if (!data.success || !data.audio) {
+      throw new Error(data.error || 'Gagal sintesis audio RVC.')
+    }
+
+    let base64Data = data.audio
+    if (base64Data.startsWith('data:')) {
+      const commaIdx = base64Data.indexOf(',')
+      if (commaIdx >= 0) {
+        base64Data = base64Data.substring(commaIdx + 1)
+      }
+    }
+
+    const duration = (text.length / 5) * 1000
+
+    return {
+      success: true,
+      audioBase64: base64Data,
+      duration,
+    }
+  } catch (e: any) {
+    console.error('[TTS] Local RVC TTS error:', e)
+    return { success: false, error: String(e.message || e) }
+  }
+}
+
 export function registerTTSTools(server: McpServer): void {
   // TTS 说话 + 口型同步
   server.tool(
@@ -179,8 +235,31 @@ export function registerTTSTools(server: McpServer): void {
         .number()
         .optional()
         .describe('腾讯云 TTS VoiceType（可选），例如：603004 是温柔小柠'),
+      pitch_change: z
+        .number()
+        .optional()
+        .describe('RVC Pitch shift / transpose semitone (optional)'),
+      index_rate: z
+        .number()
+        .min(0.0)
+        .max(1.0)
+        .optional()
+        .describe('RVC Index rate / faiss blend strength (0.0 to 1.0, optional)'),
+      rms_mix_rate: z
+        .number()
+        .min(0.0)
+        .max(1.0)
+        .optional()
+        .describe('RVC Volume mix / envelope match rate (0.0 to 1.0, optional)'),
+      protect: z
+        .number()
+        .min(0.0)
+        .max(0.5)
+        .optional()
+        .describe('RVC Consonant protection rate (0.0 to 0.5, optional)'),
     },
-    async ({ text, emotion, speed, voice_type }) => {
+    async ({ text, emotion, speed, voice_type, pitch_change, index_rate, rms_mix_rate, protect }) => {
+      logMcpActivityToFrontend('api', `MCP Tool Called - speak(text: "${text.substring(0, 30)}...", emotion: "${emotion}", speed: ${speed})`)
       if (!isRendererConnected()) {
         return {
           content: [
@@ -197,10 +276,24 @@ export function registerTTSTools(server: McpServer): void {
 
       const sentences = splitSentences(text)
 
-      // 所有句子并行发起 TTS 请求，减少总等待时间
-      const ttsPromises = sentences.map((s) =>
-        speakWithTencentTTS(s, emotion, speed, voice_type)
-      )
+      const activeModelId = getState().modelInfo?.modelId || ''
+      const isRvcActive = activeModelId.toLowerCase().includes('hutao') || activeModelId.toLowerCase().includes('huohuo')
+      
+      let ttsPromises
+      let engineName = 'Tencent TTS (streaming)'
+
+      if (isRvcActive) {
+        logMcpActivityToFrontend('api', `TTS Engine - Menggunakan Local RVC TTS untuk karakter: ${activeModelId}`)
+        ttsPromises = sentences.map((s) =>
+          speakWithLocalRVC(s, activeModelId, pitch_change, index_rate, rms_mix_rate, protect)
+        )
+        engineName = `Local RVC TTS (${activeModelId})`
+      } else {
+        // Semua句子并行发起 Tencent TTS 请求
+        ttsPromises = sentences.map((s) =>
+          speakWithTencentTTS(s, emotion, speed, voice_type)
+        )
+      }
 
       // 立即切换表情 + 初始化流式播放（字幕在 startSpeak 里展示）
       await sendCommand('setExpression', { expression: emotion })
@@ -240,7 +333,7 @@ export function registerTTSTools(server: McpServer): void {
               emotion,
               speed,
               sentences: sentences.length,
-              engine: 'Tencent TTS (streaming)',
+              engine: engineName,
               estimatedDurationMs: totalDuration,
             }),
           },
@@ -260,6 +353,7 @@ export function registerTTSTools(server: McpServer): void {
       speed: z.number().min(0.5).max(2.0).default(1.0),
     },
     async ({ text, duration_ms, emotion, speed }) => {
+      logMcpActivityToFrontend('api', `MCP Tool Called - lip_sync_estimate(text: "${text.substring(0, 30)}...", emotion: "${emotion}", speed: ${speed})`)
       if (!isRendererConnected()) {
         return {
           content: [{ type: 'text', text: JSON.stringify({ success: false, error: '渲染器未连接' }) }],
@@ -298,6 +392,7 @@ export function registerTTSTools(server: McpServer): void {
       text: z.string().optional().describe('同步展示的字幕文本（可选）'),
     },
     async ({ audio_url, audio_base64, lip_sync_data, text }) => {
+      logMcpActivityToFrontend('api', `MCP Tool Called - lip_sync(text: "${text ? text.substring(0, 30) : ''}...")`)
       if (!isRendererConnected()) {
         return {
           content: [{ type: 'text', text: JSON.stringify({ success: false, error: '渲染器未连接' }) }],

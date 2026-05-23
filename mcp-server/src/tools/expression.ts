@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import { sendCommand, isRendererConnected } from '../ws-bridge.js'
+import { sendCommand, isRendererConnected, logMcpActivityToFrontend } from '../ws-bridge.js'
 import { setExpression, getState } from '../state.js'
 
 export function registerExpressionTools(server: McpServer): void {
@@ -13,6 +13,7 @@ export function registerExpressionTools(server: McpServer): void {
         .describe('表情名称，如 "happy"、"sad"、"angry"。传入 "normal" 恢复默认表情。'),
     },
     async ({ expression }) => {
+      logMcpActivityToFrontend('api', `MCP Tool Called - set_expression(expression: "${expression}")`)
       if (!isRendererConnected()) {
         return {
           content: [

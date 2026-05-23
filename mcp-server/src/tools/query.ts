@@ -1,5 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { sendCommand, isRendererConnected } from '../ws-bridge.js'
+import { sendCommand, isRendererConnected, logMcpActivityToFrontend } from '../ws-bridge.js'
 import { getState, resetState } from '../state.js'
 
 export function registerQueryTools(server: McpServer): void {
@@ -9,6 +9,7 @@ export function registerQueryTools(server: McpServer): void {
     '获取当前 Live2D 模型的详细信息，包括可用的表情列表、动作分组和参数列表。在调用其他工具前，建议先调用此工具了解模型能力。',
     {},
     async () => {
+      logMcpActivityToFrontend('api', 'MCP Tool Called - get_model_info')
       const state = getState()
 
       if (!isRendererConnected()) {
@@ -76,9 +77,10 @@ export function registerQueryTools(server: McpServer): void {
   // 重置角色
   server.tool(
     'reset',
-    '将 Live2D 角色重置为默认姿态，清除当前表情和动作。',
+    '将 Live2D 角色重置为默认姿态，清除当前表情 and 动作。',
     {},
     async () => {
+      logMcpActivityToFrontend('api', 'MCP Tool Called - reset')
       if (!isRendererConnected()) {
         return {
           content: [
