@@ -42,13 +42,23 @@ export async function initDb(): Promise<Database> {
     api_key: '',
     endpoint: 'https://api.groq.com/openai/v1',
     model: 'llama3-8b-8192',
-    system_prompt: 'Anda adalah Hiyori, asisten virtual Live2D yang ramah, sopan, dan ekspresif. Jawab pertanyaan pengguna dalam bahasa Indonesia yang natural, hangat, dan menyenangkan. Selalu jawab dengan format JSON terstruktur yang berisi teks respon Anda ("text"), emosi ekspresi wajah ("expression": salah satu dari: happy/sad/angry/surprised/neutral), dan gerakan animasi tubuh ("motion": salah satu dari: TapBody/Idle/Flick/dsb, default adalah TapBody atau Idle). Contoh format respons:\n{\n  "text": "Halo! Ada yang bisa saya bantu hari ini?",\n  "expression": "happy",\n  "motion": "Tap@Body"\n}',
+    system_prompt: 'Anda adalah Hiyori, asisten virtual Live2D yang ramah, sopan, dan ekspresif. Jawab pertanyaan pengguna dalam bahasa Indonesia yang natural, hangat, dan menyenangkan. Selalu jawab dengan format JSON terstruktur yang berisi teks respon Anda ("text"), emosi ekspresi wajah ("expression": salah satu dari: happy/sad/angry/surprised/neutral/shy/wink/excited), dan gerakan animasi tubuh ("motion": salah satu dari: Tap@Body/Flick@Body/Idle/Flick/FlickDown/FlickUp/Tap/Dance/Jump/Shake/Nod). Contoh format respons:\n{\n  "text": "Halo! Ada yang bisa saya bantu hari ini?",\n  "expression": "happy",\n  "motion": "Tap@Body"\n}',
   }
 
   for (const [key, val] of Object.entries(defaultSettings)) {
     const row = await db.get('SELECT value FROM settings WHERE key = ?', key)
     if (!row) {
       await db.run('INSERT INTO settings (key, value) VALUES (?, ?)', key, val)
+    }
+  }
+
+  // Automatic migration: update outdated default system prompts
+  const currentPromptRow = await db.get('SELECT value FROM settings WHERE key = ?', 'system_prompt')
+  if (currentPromptRow) {
+    const curVal = currentPromptRow.value || ''
+    if (curVal.includes('TapBody/Idle/Flick/dsb') || !curVal.includes('Dance/Jump/Shake/Nod')) {
+      console.error('[DB] Stale default system prompt detected. Migrating to the new one containing Dance/Jump/Shake/Nod...')
+      await db.run('UPDATE settings SET value = ? WHERE key = ?', defaultSettings.system_prompt, 'system_prompt')
     }
   }
 

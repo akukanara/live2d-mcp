@@ -6,6 +6,7 @@ export interface ModelInfo {
   expressions: string[]
   motionGroups: Record<string, number>  // group name -> count
   parameters: ParameterInfo[]
+  modelId?: string
 }
 
 export interface ParameterInfo {
