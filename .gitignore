@@ -2,3 +2,24 @@
 node_modules/
 dist/
 renderer/public/
+
+# Database files
+*.sqlite
+*.db
+
+# Live2D models & voice datasets/weights (large folders)
+models/
+voice/
+
+# Test audio outputs / generated audios
+*.wav
+*.mp3
+*.pcm
+*.flac
+
+# Python build and cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
