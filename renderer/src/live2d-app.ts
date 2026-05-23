@@ -14,6 +14,7 @@ export interface ModelInfo {
   expressions: string[]
   motionGroups: Record<string, number>
   parameters: ParameterInfo[]
+  modelId?: string
 }
 
 export interface ParameterInfo {
@@ -24,15 +25,27 @@ export interface ParameterInfo {
   defaultValue: number
 }
 
-const MODEL_PATH = '/model/HiyoriPro/hiyori_pro_t11.model3.json'
+const DEFAULT_MODEL_PATH = 'http://localhost:3000/models/HiyoriPro/hiyori_pro_t11.model3.json'
 
 export class Live2DApp {
   private app: PIXI.Application | null = null
   private model: Live2DModel | null = null
+  private modelPath: string = DEFAULT_MODEL_PATH
   private modelInfo: ModelInfo | null = null
   private hitAreaGraphics: PIXI.Graphics | null = null
+  private activeAnimation: { stop: () => void } | null = null
+  private activeAnimationUpdate: (() => void) | null = null
+  private defaultScale: number = 1.0
 
-  async init(canvas: HTMLCanvasElement): Promise<void> {
+  // Target koordinat fisik spasial untuk peredaman transisi (exponential easing lerp)
+  private targetX: number = 300
+  private targetY: number = 300
+  private targetScaleX: number = 1.0
+  private targetScaleY: number = 1.0
+  private targetRotation: number = 0
+
+  async init(canvas: HTMLCanvasElement, modelPath?: string): Promise<void> {
+    if (modelPath) this.modelPath = modelPath
     this.app = new PIXI.Application({
       view: canvas,
       width: 600,
@@ -46,11 +59,40 @@ export class Live2DApp {
     await this.loadModel()
   }
 
+  /**
+   * Hot-swap model saat runtime (untuk katalog model)
+   */
+  async loadModelFromPath(modelPath: string): Promise<void> {
+    if (!this.app) throw new Error('App not initialized')
+    this.modelPath = modelPath
+
+    // Hentikan animasi aktif
+    if (this.activeAnimation) {
+      this.activeAnimation.stop()
+      this.activeAnimation = null
+    }
+    this.activeAnimationUpdate = null
+
+    // Hapus model lama dari stage
+    if (this.model) {
+      this.stopSpeaking()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      this.app.stage.removeChild(this.model as any)
+      this.model.destroy()
+      this.model = null
+    }
+
+    await this.loadModel()
+  }
+
   private async loadModel(): Promise<void> {
     if (!this.app) throw new Error('App not initialized')
 
     try {
-      this.model = await Live2DModel.from(MODEL_PATH, {
+      const errEl = document.getElementById('model-load-error')
+      if (errEl) errEl.style.display = 'none'
+
+      this.model = await Live2DModel.from(this.modelPath, {
         autoInteract: false,  // 关闭自动鼠标交互，由 MCP 控制
       })
 
@@ -63,14 +105,56 @@ export class Live2DApp {
         this.app.screen.height / this.model.height
       ) * 0.9
       this.model.scale.set(scale)
+      this.defaultScale = scale
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       this.app.stage.addChild(this.model as any)
 
+      // Inisialisasi target koordinat awal
+      this.targetX = this.app.screen.width / 2
+      this.targetY = this.app.screen.height / 2
+      this.targetScaleX = scale
+      this.targetScaleY = scale
+      this.targetRotation = 0
+
+      // Daftarkan listener pembaruan langsung ke PIXI Application Ticker.
+      // Ini menjamin pembaruan fisik/spasial tereksekusi secara andal di setiap frame dengan redaman transisi (lerp).
+      this.app.ticker.add((dt) => {
+        // 1. Eksekusi pembaruan kustom jika aktif untuk menentukan target koordinat spasial
+        if (this.activeAnimationUpdate) {
+          this.activeAnimationUpdate()
+        } else {
+          // Jika tidak ada animasi aktif, target koordinat kembali ke posisi siaga default
+          const defaultX = this.app!.screen.width / 2
+          const defaultY = this.app!.screen.height / 2
+          this.targetX = defaultX
+          this.targetY = defaultY
+          this.targetScaleX = this.defaultScale
+          this.targetScaleY = this.defaultScale
+          this.targetRotation = 0
+        }
+
+        // 2. Redam pergerakan fisik model secara asimtotik (exponential easing / lerp) menuju target koordinat.
+        // Ini menciptakan kelembutan gerakan yang luar biasa dan menghilangkan patahan koordinat yang kasar saat animasi disela.
+        if (this.model) {
+          const lerpFactor = Math.min(1.0, 0.14 * (dt || 1.0))
+          this.model.position.x += (this.targetX - this.model.position.x) * lerpFactor
+          this.model.position.y += (this.targetY - this.model.position.y) * lerpFactor
+          this.model.rotation += (this.targetRotation - this.model.rotation) * lerpFactor
+          
+          const curScaleX = this.model.scale.x
+          const curScaleY = this.model.scale.y
+          this.model.scale.set(
+            curScaleX + (this.targetScaleX - curScaleX) * lerpFactor,
+            curScaleY + (this.targetScaleY - curScaleY) * lerpFactor
+          )
+        }
+      })
+
       // 收集模型信息
       this.modelInfo = this.extractModelInfo()
 
-      console.log('[Live2D] Model loaded:', MODEL_PATH)
+      console.log('[Live2D] Model loaded:', this.modelPath)
       console.log('[Live2D] Model info:', this.modelInfo)
     } catch (e) {
       console.error('[Live2D] Failed to load model:', e)
@@ -92,12 +176,17 @@ export class Live2DApp {
     const expressionsRaw = (fileRefs['Expressions'] as Array<{ Name: string }> | undefined) ?? []
     const expressions = expressionsRaw.map((e) => e.Name)
 
-    // 提取动作分组
     const motionsRaw = (fileRefs['Motions'] as Record<string, unknown[]> | undefined) ?? {}
     const motionGroups: Record<string, number> = {}
     for (const [group, motions] of Object.entries(motionsRaw)) {
       motionGroups[group] = Array.isArray(motions) ? motions.length : 0
     }
+
+    // Tambahkan gerakan kustom terprogram yang sangat interaktif (heboh!)
+    motionGroups['Dance'] = 1
+    motionGroups['Jump'] = 1
+    motionGroups['Shake'] = 1
+    motionGroups['Nod'] = 1
 
     // 提取参数列表（从 Cubism Core）
     const parameters: ParameterInfo[] = []
@@ -123,7 +212,18 @@ export class Live2DApp {
   }
 
   getModelInfo(): ModelInfo | null {
-    return this.modelInfo
+    if (!this.modelInfo) return null
+    let modelId = 'Hiyori'
+    try {
+      const parts = this.modelPath.split('/')
+      if (parts.length >= 2) {
+        modelId = parts[parts.length - 2]
+      }
+    } catch {}
+    return {
+      ...this.modelInfo,
+      modelId
+    }
   }
 
   // 切换表情
@@ -142,6 +242,27 @@ export class Live2DApp {
   playMotion(group: string, index: number = -1, priority: number = 2): boolean {
     if (!this.model) return false
     try {
+      // Hentikan animasi terprogram yang sedang berjalan (jika ada)
+      if (this.activeAnimation) {
+        this.activeAnimation.stop()
+        this.activeAnimation = null
+      }
+
+      const motionGroupLower = group.toLowerCase()
+      if (motionGroupLower === 'dance' || motionGroupLower.includes('dance')) {
+        this.startDanceAnimation()
+        return true
+      } else if (motionGroupLower === 'jump' || motionGroupLower.includes('jump')) {
+        this.startJumpAnimation()
+        return true
+      } else if (motionGroupLower === 'shake' || motionGroupLower.includes('shake')) {
+        this.startShakeAnimation()
+        return true
+      } else if (motionGroupLower === 'nod' || motionGroupLower.includes('nod')) {
+        this.startNodAnimation()
+        return true
+      }
+
       if (index < 0) {
         // 随机选择
         this.model.motion(group, undefined, priority)
@@ -153,6 +274,317 @@ export class Live2DApp {
       console.error('[Live2D] playMotion failed:', e)
       return false
     }
+  }
+
+  // Pembantu untuk menghitung berat pudar (fade weight) pudar masuk / pudar keluar
+  private getFadeWeight(elapsed: number, duration: number, fadeInMs: number, fadeOutMs: number): number {
+    let weight = 1.0
+    if (elapsed < fadeInMs) {
+      const progress = elapsed / fadeInMs
+      weight = progress * progress * (3 - 2 * progress) // smoothstep
+    } else if (elapsed > duration - fadeOutMs) {
+      const progress = (duration - elapsed) / fadeOutMs
+      weight = progress * progress * (3 - 2 * progress) // smoothstep
+    }
+    return weight
+  }
+
+  private startDanceAnimation(): void {
+    if (!this.model || !this.app) return
+    const startTime = Date.now()
+    const duration = 6000 // 6 detik tarian elok!
+    
+    // Memainkan gerakan tangan bawaan profesional Flick@Body (wave) dengan prioritas tinggi
+    try { this.model.motion('Flick@Body', 0, 3) } catch {}
+
+    const defaultX = this.app.screen.width / 2
+    const defaultY = this.app.screen.height / 2
+
+    const updateFn = () => {
+      const elapsed = Date.now() - startTime
+      if (elapsed >= duration) {
+        stopFn()
+        return
+      }
+
+      // Smooth Fade-In dan Fade-Out (800ms)
+      const fadeWeight = this.getFadeWeight(elapsed, duration, 800, 800)
+      const t = (elapsed / 1000) * 1.8 * Math.PI // Frekuensi tempo tarian yang elok
+
+      // 🕺 SPATIAL LISSAJOUS FIGURE-8: Menari meliuk melengkung indah membentuk angka 8 di kanvas
+      const danceX = Math.sin(t) * 75 * fadeWeight // Goyang kiri-kanan sejauh 75px!
+      const danceY = Math.sin(t * 2) * 18 * fadeWeight // Bobbing naik-turun 18px!
+      const danceRot = Math.cos(t) * 0.12 * fadeWeight // Miringkan tubuh +/- 7 derajat!
+
+      // Squash and stretch dinamis yang ritmis seirama gerakan tarian
+      const scaleX = 1.0 + Math.sin(t * 2) * 0.04 * fadeWeight
+      const scaleY = 1.0 - Math.sin(t * 2) * 0.04 * fadeWeight
+
+      this.targetX = defaultX + danceX
+      this.targetY = defaultY + danceY
+      this.targetScaleX = this.defaultScale * scaleX
+      this.targetScaleY = this.defaultScale * scaleY
+      this.targetRotation = danceRot
+
+      // Harmonisasi Parameter Live2D Sekunder agar seluruh anggota tubuh bergerak seirama
+      this.setParameter('ParamBodyAngleX', Math.sin(t) * 10 * fadeWeight)
+      this.setParameter('ParamBodyAngleZ', Math.sin(t) * 8 * fadeWeight)
+      this.setParameter('ParamAngleX', Math.sin(t * 1.3) * 18 * fadeWeight)
+      this.setParameter('ParamAngleZ', Math.sin(t) * 15 * fadeWeight)
+      this.setParameter('ParamShoulder', Math.sin(t * 2) * 6 * fadeWeight)
+      this.setParameter('ParamLeg', Math.cos(t) * 8 * fadeWeight)
+      
+      // Kibasan rok & rambut
+      this.setParameter('ParamSkirt', Math.cos(t * 2) * 12 * fadeWeight)
+      this.setParameter('ParamSkirt2', Math.sin(t * 2) * 8 * fadeWeight)
+      this.setParameter('ParamHairAhoge', Math.sin(t * 3) * 12 * fadeWeight)
+      this.setParameter('ParamHairFront', Math.sin(t * 2) * 10 * fadeWeight)
+      this.setParameter('ParamHairBack', Math.cos(t * 2) * 10 * fadeWeight)
+      this.setParameter('ParamSideupRibbon', Math.sin(t * 2) * 12 * fadeWeight)
+      this.setParameter('ParamRibbon', Math.cos(t * 2) * 10 * fadeWeight)
+      
+      // Ekspresi wajah riang gembira
+      this.setParameter('ParamCheek', 0.8 * fadeWeight)
+      this.setParameter('ParamEyeLSmile', 1.0 * fadeWeight)
+      this.setParameter('ParamEyeRSmile', 1.0 * fadeWeight)
+    }
+
+    const stopFn = () => {
+      this.activeAnimationUpdate = null
+      this.resetParameters()
+    }
+
+    this.activeAnimationUpdate = updateFn
+    this.activeAnimation = { stop: stopFn }
+  }
+
+  private startJumpAnimation(): void {
+    if (!this.model || !this.app) return
+    const startTime = Date.now()
+    const duration = 4000 // 4 detik lompat-lompat gembira berantai
+    
+    // Memainkan gerakan tangan bawaan profesional Tap (hiyori_m07 - mengangkat tangan bersemangat!)
+    try { this.model.motion('Tap', 0, 3) } catch {}
+
+    const defaultX = this.app.screen.width / 2
+    const defaultY = this.app.screen.height / 2
+
+    const updateFn = () => {
+      const elapsed = Date.now() - startTime
+      if (elapsed >= duration) {
+        stopFn()
+        return
+      }
+
+      // Smooth Fade-In dan Fade-Out (400ms)
+      const fadeWeight = this.getFadeWeight(elapsed, duration, 400, 400)
+
+      // Siklus lompatan berantai: 1.3 detik per lompatan
+      const cycleDuration = 1300
+      const cycleElapsed = elapsed % cycleDuration
+      const progress = cycleElapsed / cycleDuration
+
+      let targetOffsetY = 0
+      let scaleX = 1.0
+      let scaleY = 1.0
+
+      // Fase 1: Crouch (0% - 15% dari durasi siklus) - Lutut ditekuk ke bawah untuk mengumpulkan tenaga
+      if (progress < 0.15) {
+        const t = progress / 0.15
+        const crouchAmt = Math.sin(t * Math.PI)
+        targetOffsetY = crouchAmt * 18 * fadeWeight // Tekuk ke bawah 18px
+        scaleY = 1.0 - crouchAmt * 0.14 * fadeWeight // Squash Y (gepeng 14%)
+        scaleX = 1.0 + crouchAmt * 0.08 * fadeWeight // Stretch X (melebar 8%)
+      }
+      // Fase 2: Launch & Flight (15% - 75% dari durasi siklus) - Melambung tinggi ke atas langit
+      else if (progress < 0.75) {
+        const t = (progress - 0.15) / 0.60
+        const flightAmt = Math.sin(t * Math.PI)
+        targetOffsetY = -flightAmt * 170 * fadeWeight // Melambung naik secara fisik setinggi 170px!
+        
+        // Stretch vertikal saat meluncur naik, squash sedikit di puncak, stretch kembali saat jatuh
+        const stretchAmt = Math.cos(t * Math.PI) * 0.12 * fadeWeight // Positif saat naik, negatif saat jatuh
+        scaleY = 1.0 + stretchAmt
+        scaleX = 1.0 - stretchAmt * 0.5
+      }
+      // Fase 3: Landing Impact (75% - 90% dari durasi siklus) - Membentur tanah & meredam berat gravitasi
+      else if (progress < 0.90) {
+        const t = (progress - 0.75) / 0.15
+        const landingAmt = Math.sin(t * Math.PI)
+        targetOffsetY = landingAmt * 12 * fadeWeight // Sedikit bergeser di bawah permukaan tanah
+        scaleY = 1.0 - landingAmt * 0.18 * fadeWeight // Squash landing berat (gepeng 18%)
+        scaleX = 1.0 + landingAmt * 0.12 * fadeWeight // Stretch X (melebar 12%)
+      }
+      // Fase 4: Recovery (90% - 100% dari durasi siklus) - Memantul kembali ke ukuran semula
+      else {
+        const t = (progress - 0.90) / 0.10
+        const recoverAmt = Math.sin(t * Math.PI)
+        scaleY = 1.0 + recoverAmt * 0.04 * fadeWeight // Pantulan pemulihan mikro
+        scaleX = 1.0 - recoverAmt * 0.02 * fadeWeight
+      }
+
+      this.targetX = defaultX
+      this.targetY = defaultY + targetOffsetY
+      this.targetScaleX = this.defaultScale * scaleX
+      this.targetScaleY = this.defaultScale * scaleY
+      this.targetRotation = 0
+
+      // Harmonisasi Parameter Live2D untuk meniru percepatan gerakan
+      const isRising = progress > 0.15 && progress < 0.45
+      const isFalling = progress >= 0.45 && progress < 0.75
+      const isCrouching = progress < 0.15 || (progress >= 0.75 && progress < 0.90)
+
+      this.setParameter('ParamBodyAngleY', (isRising ? 10 : isFalling ? -10 : isCrouching ? -6 : 0) * fadeWeight)
+      this.setParameter('ParamAngleY', (isRising ? 12 : isFalling ? -8 : isCrouching ? -5 : 0) * fadeWeight)
+      this.setParameter('ParamLeg', (isRising ? 8 : isFalling ? -8 : -2) * fadeWeight)
+      this.setParameter('ParamSkirt', (isRising ? -10 : isFalling ? 10 : 0) * fadeWeight)
+      this.setParameter('ParamSkirt2', (isRising ? -8 : isFalling ? 8 : 0) * fadeWeight)
+      this.setParameter('ParamHairAhoge', (isRising ? -12 : isFalling ? 12 : 0) * fadeWeight)
+      
+      this.setParameter('ParamCheek', 0.8 * fadeWeight)
+      this.setParameter('ParamEyeLSmile', 1.0 * fadeWeight)
+      this.setParameter('ParamEyeRSmile', 1.0 * fadeWeight)
+    }
+
+    const stopFn = () => {
+      this.activeAnimationUpdate = null
+      this.resetParameters()
+    }
+
+    this.activeAnimationUpdate = updateFn
+    this.activeAnimation = { stop: stopFn }
+  }
+
+  private startShakeAnimation(): void {
+    if (!this.model || !this.app) return
+    const startTime = Date.now()
+    const duration = 3000 // 3 detik getaran super panik heboh!
+    
+    // Memainkan gerakan bawaan Flick (hiyori_m03 - kaget/gemetar)
+    try { this.model.motion('Flick', 0, 3) } catch {}
+
+    const defaultX = this.app.screen.width / 2
+    const defaultY = this.app.screen.height / 2
+
+    const updateFn = () => {
+      const elapsed = Date.now() - startTime
+      if (elapsed >= duration) {
+        stopFn()
+        return
+      }
+
+      // Smooth Fade-In dan Fade-Out (400ms)
+      const fadeWeight = this.getFadeWeight(elapsed, duration, 400, 400)
+
+      // 🌀 SPATIAL SHAKE: Menggetarkan koordinat spasial secara agresif & panik
+      const shakeX = (Math.random() - 0.5) * 22 * fadeWeight // Getaran +/- 11px
+      const shakeY = (Math.random() - 0.5) * 16 * fadeWeight // Getaran +/- 8px
+      const shakeRot = (Math.random() - 0.5) * 0.07 * fadeWeight // Getaran miring rotasi
+
+      this.targetX = defaultX + shakeX
+      this.targetY = defaultY + shakeY
+      this.targetScaleX = this.defaultScale
+      this.targetScaleY = this.defaultScale
+      this.targetRotation = shakeRot
+
+      // Tambahkan parameter Live2D frekuensi tinggi
+      const t = (elapsed / 1000) * 14 * Math.PI
+      this.setParameter('ParamAngleX', Math.sin(t) * 16 * fadeWeight)
+      this.setParameter('ParamAngleY', Math.cos(t * 1.2) * 8 * fadeWeight)
+      this.setParameter('ParamBodyAngleX', Math.sin(t * 0.8) * 8 * fadeWeight)
+      this.setParameter('ParamHairAhoge', Math.sin(t * 2) * 15 * fadeWeight)
+      this.setParameter('ParamSkirt', Math.sin(t * 1.5) * 8 * fadeWeight)
+      
+      // Ekspresi wajah terkejut, melotot panik & mulut ternganga
+      this.setParameter('ParamEyeLOpen', 1.0 + 0.4 * fadeWeight)
+      this.setParameter('ParamEyeROpen', 1.0 + 0.4 * fadeWeight)
+      this.setParameter('ParamEyeLSmile', 0)
+      this.setParameter('ParamEyeRSmile', 0)
+      this.setParameter('ParamMouthForm', -1.0 * fadeWeight)
+      this.setParameter('ParamMouthOpenY', (0.1 + Math.abs(Math.sin(t * 0.4)) * 0.35) * fadeWeight)
+      this.setParameter('ParamCheek', 0.2 * fadeWeight)
+    }
+
+    const stopFn = () => {
+      this.activeAnimationUpdate = null
+      this.resetParameters()
+    }
+
+    this.activeAnimationUpdate = updateFn
+    this.activeAnimation = { stop: stopFn }
+  }
+
+  private startNodAnimation(): void {
+    if (!this.model || !this.app) return
+    const startTime = Date.now()
+    const duration = 2500 // 2.5 detik anggukan mantap!
+    
+    // Memainkan gerakan kustom bawaan FlickDown (hiyori_m04 - mengangguk/bow)
+    try { this.model.motion('FlickDown', 0, 3) } catch {}
+
+    const defaultX = this.app.screen.width / 2
+    const defaultY = this.app.screen.height / 2
+
+    const updateFn = () => {
+      const elapsed = Date.now() - startTime
+      if (elapsed >= duration) {
+        stopFn()
+        return
+      }
+
+      // Smooth Fade-In dan Fade-Out (400ms)
+      const fadeWeight = this.getFadeWeight(elapsed, duration, 400, 400)
+      const t = (elapsed / 1000) * 3 * Math.PI // Frekuensi anggukan tegas
+      const wave = Math.sin(t)
+      const positiveWave = Math.max(0, wave)
+      
+      // 👍 SPATIAL NOD: Menghentakkan model ke bawah & menekuk secara vertikal
+      const targetOffsetY = positiveWave * 28 * fadeWeight // Hentakan ke bawah 28px
+      const squashY = 1.0 - positiveWave * 0.08 * fadeWeight // Squash vertikal (gepeng 8%)
+      const squashX = 1.0 + positiveWave * 0.04 * fadeWeight
+
+      this.targetX = defaultX
+      this.targetY = defaultY + targetOffsetY
+      this.targetScaleX = this.defaultScale * squashX
+      this.targetScaleY = this.defaultScale * squashY
+      this.targetRotation = 0
+
+      // Parameter Live2D
+      this.setParameter('ParamAngleY', wave * 22 * fadeWeight)
+      this.setParameter('ParamBodyAngleY', wave * 7 * fadeWeight)
+      this.setParameter('ParamShoulder', wave * 6 * fadeWeight)
+      this.setParameter('ParamHairAhoge', wave * 8 * fadeWeight)
+      this.setParameter('ParamSkirt', wave * 5 * fadeWeight)
+      
+      this.setParameter('ParamCheek', 0.6 * fadeWeight)
+      this.setParameter('ParamEyeLSmile', 1.0 * fadeWeight)
+      this.setParameter('ParamEyeRSmile', 1.0 * fadeWeight)
+    }
+
+    const stopFn = () => {
+      this.activeAnimationUpdate = null
+      this.resetParameters()
+    }
+
+    this.activeAnimationUpdate = updateFn
+    this.activeAnimation = { stop: stopFn }
+  }
+
+  private resetParameters(): void {
+    const defaults = [
+      'ParamBodyAngleX', 'ParamBodyAngleY', 'ParamBodyAngleZ',
+      'ParamAngleX', 'ParamAngleY', 'ParamAngleZ',
+      'ParamShoulder', 'ParamArmLA', 'ParamArmRA', 'ParamArmLB', 'ParamArmRB',
+      'ParamHandL', 'ParamHandR', 'ParamLeg', 'ParamBustY',
+      'ParamHairAhoge', 'ParamHairFront', 'ParamHairBack', 'ParamSideupRibbon', 'ParamRibbon',
+      'ParamSkirt', 'ParamSkirt2', 'ParamCheek', 'ParamEyeLSmile', 'ParamEyeRSmile',
+      'ParamMouthForm', 'ParamMouthOpenY'
+    ]
+    for (const id of defaults) {
+      this.setParameter(id, 0)
+    }
+    this.setParameter('ParamEyeLOpen', 1.0)
+    this.setParameter('ParamEyeROpen', 1.0)
   }
 
   // 设置眼神方向（-1 到 1）
@@ -377,7 +809,15 @@ export class Live2DApp {
 
     this.isPlayingQueue = true
     const { audio, lipSyncData, durationMs } = this.audioQueue.shift()!
-    const audioEl = new Audio(`data:audio/mpeg;base64,${audio}`)
+    
+    // Deteksi tipe audio secara dinamis dari string base64 (RIFF WAV dimulai dengan UklGR)
+    let mimeType = 'audio/mpeg'
+    if (audio.startsWith('UklGR')) {
+      mimeType = 'audio/wav'
+    }
+    const src = audio.startsWith('data:') ? audio : `data:${mimeType};base64,${audio}`
+    
+    const audioEl = new Audio(src)
     this.speakingAudio = audioEl
 
     audioEl.onplay = () => {
@@ -385,8 +825,8 @@ export class Live2DApp {
       if (lipSyncData && lipSyncData.length > 0) {
         this.playLipSyncData(lipSyncData)
       } else {
-        // 用服务端传来的时长估算，比 audioEl.duration 更可靠
-        this.startLipSyncAnimationWithDuration(durationMs)
+        // Gunakan Web Audio API yang luar biasa dinamis untuk menganalisis frekuensi audio secara real-time!
+        this.startAudioDrivenLipSync(audioEl)
       }
     }
 
@@ -476,7 +916,15 @@ export class Live2DApp {
 
       // 播放音频，口型优先用时间轴，无时间轴则用音量分析
       if (audioUrl || audioBase64) {
-        const audio = new Audio(audioBase64 ? `data:audio/mpeg;base64,${audioBase64}` : audioUrl)
+        let src = audioUrl || ''
+        if (audioBase64) {
+          let mimeType = 'audio/mpeg'
+          if (audioBase64.startsWith('UklGR')) {
+            mimeType = 'audio/wav'
+          }
+          src = audioBase64.startsWith('data:') ? audioBase64 : `data:${mimeType};base64,${audioBase64}`
+        }
+        const audio = new Audio(src)
         audio.crossOrigin = 'anonymous'
         this.speakingAudio = audio
 

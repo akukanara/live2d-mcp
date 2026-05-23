@@ -46,6 +46,10 @@ const MOTION_NAMES: Record<string, string> = {
   'Tap:1': 'Reaksi Ketuk',
   'Tap@Body:0': 'Sentuh Tubuh',
   'Flick@Body:0': 'Melambaikan Tangan (wave)',
+  'Dance:0': '🕺 Menari Heboh (Dance)',
+  'Jump:0': '🚀 Melompat Riang (Jump)',
+  'Shake:0': '🌀 Gemetar/Panik Heboh (Shake)',
+  'Nod:0': '👍 Mengangguk Mantap (Nod)',
 }
 
 function motionLabel(group: string, index?: number): string {
@@ -142,30 +146,68 @@ function initMouseFollow(app: Live2DApp) {
   })
 }
 
-function initDebugPanel(app: Live2DApp) {
-  // Buka/Tutup: Hanya dipicu oleh tombol toggle
-  debugToggleBtn.addEventListener('click', () => {
-    const expanded = debugPanel.classList.toggle('expanded')
-    debugToggleBtn.textContent = expanded ? '▼ Tutup' : '▲ Buka'
-  })
+let debugPanelInitialized = false
 
-  // Perpindahan Tab
-  const tabs = debugHeader.querySelectorAll<HTMLButtonElement>('.debug-tab')
-  tabs.forEach((tab) => {
-    tab.addEventListener('click', () => {
-      tabs.forEach((t) => t.classList.remove('active'))
-      tab.classList.add('active')
-      const paneId = `pane-${tab.dataset.tab}`
-      debugPanel.querySelectorAll<HTMLDivElement>('.debug-pane').forEach((p) => {
-        p.classList.toggle('active', p.id === paneId)
-      })
-      // Buka panel secara otomatis jika belum terbuka saat berpindah tab
-      if (!debugPanel.classList.contains('expanded')) {
-        debugPanel.classList.add('expanded')
-        debugToggleBtn.textContent = '▼ Tutup'
-      }
+function initDebugPanel(app: Live2DApp) {
+  if (!debugPanelInitialized) {
+    debugPanelInitialized = true
+    // Buka/Tutup: Hanya dipicu oleh tombol toggle
+    debugToggleBtn.addEventListener('click', () => {
+      const expanded = debugPanel.classList.toggle('expanded')
+      debugToggleBtn.textContent = expanded ? '▼ Tutup' : '▲ Buka'
     })
-  })
+
+    // Perpindahan Tab
+    const tabs = debugHeader.querySelectorAll<HTMLButtonElement>('.debug-tab')
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        tabs.forEach((t) => t.classList.remove('active'))
+        tab.classList.add('active')
+        const paneId = `pane-${tab.dataset.tab}`
+        debugPanel.querySelectorAll<HTMLDivElement>('.debug-pane').forEach((p) => {
+          p.classList.toggle('active', p.id === paneId)
+        })
+        // Buka panel secara otomatis jika belum terbuka saat berpindah tab
+        if (!debugPanel.classList.contains('expanded')) {
+          debugPanel.classList.add('expanded')
+          debugToggleBtn.textContent = '▼ Tutup'
+        }
+      })
+    })
+
+    // 视线控制
+    function applyLookAt() {
+      const x = parseFloat(lookXInput.value)
+      const y = parseFloat(lookYInput.value)
+      lookXVal.textContent = x.toFixed(2)
+      lookYVal.textContent = y.toFixed(2)
+      app.lookAt(x, y)
+    }
+    lookXInput.addEventListener('input', applyLookAt)
+    lookYInput.addEventListener('input', applyLookAt)
+
+    // 重置
+    debugResetBtn.addEventListener('click', () => {
+      app.reset()
+      lookXInput.value = '0'
+      lookYInput.value = '0'
+      lookXVal.textContent = '0.00'
+      lookYVal.textContent = '0.00'
+      if (!mouseFollowCheckbox.checked) app.lookAt(0, 0)
+      
+      // Reset active states of dynamic buttons
+      debugExpressionsEl.querySelectorAll('.motion-btn').forEach(btn => btn.classList.remove('active'))
+      debugMotionsEl.querySelectorAll('.motion-btn').forEach(btn => btn.classList.remove('active'))
+      
+      currentExpression = '-'
+      currentMotion = '-'
+      updateStateBar()
+    })
+  }
+
+  // Clear existing buttons to avoid duplicate list on hot-swap
+  debugExpressionsEl.innerHTML = ''
+  debugMotionsEl.innerHTML = ''
 
   const info = app.getModelInfo()
   let activeExprBtn: HTMLButtonElement | null = null
@@ -214,34 +256,6 @@ function initDebugPanel(app: Live2DApp) {
       }
     }
   }
-
-  // 视线控制
-  function applyLookAt() {
-    const x = parseFloat(lookXInput.value)
-    const y = parseFloat(lookYInput.value)
-    lookXVal.textContent = x.toFixed(2)
-    lookYVal.textContent = y.toFixed(2)
-    app.lookAt(x, y)
-  }
-  lookXInput.addEventListener('input', applyLookAt)
-  lookYInput.addEventListener('input', applyLookAt)
-
-  // 重置
-  debugResetBtn.addEventListener('click', () => {
-    app.reset()
-    lookXInput.value = '0'
-    lookYInput.value = '0'
-    lookXVal.textContent = '0.00'
-    lookYVal.textContent = '0.00'
-    if (!mouseFollowCheckbox.checked) app.lookAt(0, 0)
-    activeExprBtn?.classList.remove('active')
-    activeExprBtn = null
-    activeBtn?.classList.remove('active')
-    activeBtn = null
-    currentExpression = '-'
-    currentMotion = '-'
-    updateStateBar()
-  })
 }
 
 // 解锁浏览器 autoplay 限制：首次用户交互时播放一段静音音频
@@ -261,10 +275,44 @@ function setupAudioUnlock() {
   document.addEventListener('keydown', unlock)
 }
 
+function logMcpActivity(type: 'error' | 'ws_recv' | 'ws_send' | 'api' | 'rvc', message: string) {
+  const mcpLogEl = document.getElementById('debug-mcp-log')
+  if (!mcpLogEl) return
+  
+  const entry = document.createElement('div')
+  entry.className = 'mcp-log-entry'
+  
+  const timestamp = new Date().toLocaleTimeString()
+  let color = '#88ffaa' // Green for success / info
+  if (type === 'error') {
+    color = '#ff5555' // Red for error
+  } else if (type === 'ws_recv') {
+    color = '#64b4ff' // Blue for WS received
+  } else if (type === 'ws_send') {
+    color = '#ffaa64' // Orange for WS sent
+  } else if (type === 'api') {
+    color = '#e264ff' // Purple for API requests
+  } else if (type === 'rvc') {
+    color = '#00ffff' // Neon Cyan for RVC logs
+  }
+  
+  entry.innerHTML = `<span style="color: #666;">[${timestamp}]</span> <span style="color: ${color}; font-weight: bold;">[${type.toUpperCase()}]</span> ${message}`
+  mcpLogEl.appendChild(entry)
+  
+  // Keep last 50 logs
+  while (mcpLogEl.children.length > 50) {
+    mcpLogEl.firstElementChild?.remove()
+  }
+  
+  // Auto-scroll if log pane is active
+  const mcpPane = document.getElementById('pane-mcp')
+  if (mcpPane) mcpPane.scrollTop = mcpPane.scrollHeight
+}
+
 function initChatPanel(app: Live2DApp) {
   const API_BASE = 'http://localhost:3000/api'
 
-  const DEFAULT_SYSTEM_PROMPT = 'Anda adalah Hiyori, asisten virtual Live2D yang ramah, sopan, dan ekspresif. Jawab pertanyaan pengguna dalam bahasa Indonesia yang natural, hangat, dan menyenangkan. Selalu jawab dengan format JSON terstruktur yang berisi teks respon Anda ("text"), emosi ekspresi wajah ("expression": salah satu dari: happy/sad/angry/surprised/neutral), dan gerakan animasi tubuh ("motion": salah satu dari: TapBody/Idle/Flick/dsb, default adalah TapBody atau Idle). Contoh format respons:\n{\n  "text": "Halo! Ada yang bisa saya bantu hari ini?",\n  "expression": "happy",\n  "motion": "Tap@Body"\n}';
+  const DEFAULT_SYSTEM_PROMPT = 'Anda adalah Hiyori, asisten virtual Live2D yang ramah, sopan, dan ekspresif. Jawab pertanyaan pengguna dalam bahasa Indonesia yang natural, hangat, dan menyenangkan. Selalu jawab dengan format JSON terstruktur yang berisi teks respon Anda ("text"), emosi ekspresi wajah ("expression": salah satu dari: happy/sad/angry/surprised/neutral/shy/wink/excited), dan gerakan animasi tubuh ("motion": salah satu dari: Tap@Body/Flick@Body/Idle/Flick/FlickDown/FlickUp/Tap/Dance/Jump/Shake/Nod). Contoh format respons:\n{\n  "text": "Halo! Ada yang bisa saya bantu hari ini?",\n  "expression": "happy",\n  "motion": "Tap@Body"\n}';
 
   const PROVIDER_PRESETS: Record<string, { endpoint: string; model: string }> = {
     groq: {
@@ -304,9 +352,23 @@ function initChatPanel(app: Live2DApp) {
   const settingsModel = document.getElementById('settings-model') as HTMLInputElement
   const settingsPrompt = document.getElementById('settings-prompt') as HTMLTextAreaElement
 
+  const settingsPitch = document.getElementById('settings-pitch') as HTMLInputElement
+  const settingsPitchVal = document.getElementById('settings-pitch-val') as HTMLSpanElement
+  const settingsIndexRate = document.getElementById('settings-index-rate') as HTMLInputElement
+  const settingsIndexRateVal = document.getElementById('settings-index-rate-val') as HTMLSpanElement
+
+  // Hubungkan event input slider agar label nilainya bergeser secara real-time
+  settingsPitch.addEventListener('input', () => {
+    settingsPitchVal.textContent = settingsPitch.value
+  })
+  settingsIndexRate.addEventListener('input', () => {
+    settingsIndexRateVal.textContent = parseFloat(settingsIndexRate.value).toFixed(2)
+  })
+
   // Load existing settings
   async function loadSettings() {
     try {
+      logMcpActivity('api', 'GET /api/settings - Memuat setelan AI...');
       const res = await fetch(`${API_BASE}/settings`)
       if (!res.ok) throw new Error('Gagal mengambil setelan')
       const settings = await res.json()
@@ -321,8 +383,19 @@ function initChatPanel(app: Live2DApp) {
         
       settingsModel.value = settings.model || ''
       settingsPrompt.value = settings.system_prompt || DEFAULT_SYSTEM_PROMPT
-    } catch (err) {
+      
+      // Load setelan RVC dari localStorage
+      const savedPitch = localStorage.getItem('rvc_pitch_change') || '0'
+      const savedIndexRate = localStorage.getItem('rvc_index_rate') || '0.4'
+      settingsPitch.value = savedPitch
+      settingsPitchVal.textContent = savedPitch
+      settingsIndexRate.value = savedIndexRate
+      settingsIndexRateVal.textContent = parseFloat(savedIndexRate).toFixed(2)
+
+      logMcpActivity('api', `GET /api/settings - Sukses! Provider: ${settingsProvider.value}, Model: ${settingsModel.value}`);
+    } catch (err: any) {
       console.error('[Settings] Error loading settings:', err)
+      logMcpActivity('error', `GET /api/settings - Eror: ${err.message}`);
     }
   }
 
@@ -363,6 +436,7 @@ function initChatPanel(app: Live2DApp) {
 
     saveSettingsBtn.disabled = true
     saveSettingsBtn.textContent = 'Menyimpan...'
+    logMcpActivity('api', `POST /api/settings - Menyimpan setelan AI... Provider: ${provider}, Model: ${model}`);
 
     try {
       const res = await fetch(`${API_BASE}/settings`, {
@@ -384,9 +458,15 @@ function initChatPanel(app: Live2DApp) {
         throw new Error(data.error || 'Gagal menyimpan setelan')
       }
 
+      // Simpan setelan RVC ke localStorage
+      localStorage.setItem('rvc_pitch_change', settingsPitch.value)
+      localStorage.setItem('rvc_index_rate', settingsIndexRate.value)
+
+      logMcpActivity('api', 'POST /api/settings - Sukses menyimpan setelan.');
       await loadSettings()
       settingsDrawer.classList.remove('open')
     } catch (err: any) {
+      logMcpActivity('error', `POST /api/settings - Eror: ${err.message}`);
       alert(`Gagal menyimpan setelan: ${err.message}`)
     } finally {
       saveSettingsBtn.disabled = false
@@ -398,18 +478,21 @@ function initChatPanel(app: Live2DApp) {
   clearChatBtn.addEventListener('click', async () => {
     if (!confirm('Apakah Anda yakin ingin menghapus semua riwayat obrolan?')) return
 
+    logMcpActivity('api', 'POST /api/chat/clear - Menghapus semua riwayat obrolan...');
     try {
       const res = await fetch(`${API_BASE}/chat/clear`, {
         method: 'POST',
       })
       if (!res.ok) throw new Error('Gagal menghapus riwayat')
 
+      logMcpActivity('api', 'POST /api/chat/clear - Sukses menghapus riwayat obrolan.');
       chatMessages.innerHTML = `
         <div class="message assistant">
           <div class="msg-bubble">Halo! Saya Hiyori. Senang bertemu denganmu! Ada yang ingin kamu tanyakan padaku? 😊</div>
         </div>
       `
     } catch (err: any) {
+      logMcpActivity('error', `POST /api/chat/clear - Eror: ${err.message}`);
       alert(`Gagal menghapus obrolan: ${err.message}`)
     }
   })
@@ -443,7 +526,7 @@ function initChatPanel(app: Live2DApp) {
   }
 
   // Web Speech Fallback TTS playing
-  function playTTS(text: string, emotion: string) {
+  function playWebSpeechFallback(text: string, emotion: string) {
     if (!('speechSynthesis' in window)) {
       console.warn('Speech synthesis not supported')
       return
@@ -481,6 +564,45 @@ function initChatPanel(app: Live2DApp) {
     window.speechSynthesis.speak(utterance)
   }
 
+  // Main RVC TTS with Web Speech Fallback
+  function playTTS(text: string, emotion: string) {
+    logMcpActivity('api', `POST /api/tts - Sintesis RVC untuk "${text.substring(0, 30)}..." (Karakter: ${activeModelId})`)
+    
+    const currentPitch = parseInt(localStorage.getItem('rvc_pitch_change') || '0', 10)
+    const currentIndexRate = parseFloat(localStorage.getItem('rvc_index_rate') || '0.4')
+    logMcpActivity('api', `POST /api/tts - Parameter RVC dinamis: pitch_change=${currentPitch}, index_rate=${currentIndexRate}`)
+    
+    fetch(`${API_BASE}/tts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        text,
+        character: activeModelId,
+        pitch_change: currentPitch,
+        index_rate: currentIndexRate
+      }),
+    })
+    .then(async (res) => {
+      if (!res.ok) {
+        throw new Error(`API returned status ${res.status}`)
+      }
+      const data = await res.json()
+      if (data && data.success && data.audio) {
+        logMcpActivity('api', `POST /api/tts - Memutar audio RVC untuk ${activeModelId}`)
+        app.setExpression(emotion)
+        app.lipSync(undefined, data.audio)
+      } else {
+        throw new Error('Respons API tidak valid')
+      }
+    })
+    .catch((err) => {
+      logMcpActivity('error', `POST /api/tts - Gagal RVC TTS (${err.message}). Menggunakan fallback Web Speech API.`)
+      playWebSpeechFallback(text, emotion)
+    })
+  }
+
   // Send message
   async function sendMessage() {
     const message = chatInput.value.trim()
@@ -492,6 +614,7 @@ function initChatPanel(app: Live2DApp) {
     chatInput.disabled = true
     chatSend.disabled = true
     const typingBubble = appendTypingIndicator()
+    logMcpActivity('api', `POST /api/chat - Mengirim pesan: "${message}"`);
 
     try {
       const res = await fetch(`${API_BASE}/chat`, {
@@ -511,9 +634,11 @@ function initChatPanel(app: Live2DApp) {
 
       const reply = await res.json()
       appendMessage('assistant', reply.text)
+      logMcpActivity('api', `POST /api/chat - Sukses! Respons: text="${reply.text.substring(0, 30)}...", expression="${reply.expression}", motion="${reply.motion}"`);
       playTTS(reply.text, reply.expression || 'neutral')
     } catch (err: any) {
       typingBubble.remove()
+      logMcpActivity('error', `POST /api/chat - Eror: ${err.message}`);
       appendMessage('assistant', `Maaf, terjadi kesalahan: ${err.message}`)
     } finally {
       chatInput.disabled = false
@@ -531,7 +656,149 @@ function initChatPanel(app: Live2DApp) {
   })
 }
 
+
+const API_BASE_GLOBAL = 'http://localhost:3000/api'
+
+interface ModelEntry {
+  id: string
+  name: string
+  description: string
+  modelPath: string
+  thumbnail: string
+}
+
+let activeModelId = 'HiyoriPro'
+
+function initModelCatalog(app: Live2DApp) {
+  const overlay = document.getElementById('catalog-overlay') as HTMLDivElement
+  const catalogBtn = document.getElementById('catalog-btn') as HTMLButtonElement
+  const closeCatalogBtn = document.getElementById('close-catalog-btn') as HTMLButtonElement
+  const catalogGrid = document.getElementById('catalog-grid') as HTMLDivElement
+  const catalogLoading = document.getElementById('catalog-loading') as HTMLDivElement
+  const catalogEmpty = document.getElementById('catalog-empty') as HTMLDivElement
+  const catalogCount = document.getElementById('catalog-count') as HTMLSpanElement
+  const canvasContainer = document.getElementById('canvas-container') as HTMLDivElement
+
+  // Overlay loading saat ganti model
+  const modelLoadingOverlay = document.createElement('div')
+  modelLoadingOverlay.id = 'catalog-model-loading-overlay'
+  modelLoadingOverlay.innerHTML = `<div class="catalog-spinner"></div><span>Memuat model...</span>`
+  canvasContainer.style.position = 'relative'
+  canvasContainer.appendChild(modelLoadingOverlay)
+
+  async function loadCatalog() {
+    catalogLoading.style.display = 'flex'
+    catalogGrid.style.display = 'none'
+    catalogEmpty.style.display = 'none'
+    catalogGrid.innerHTML = ''
+
+    try {
+      const res = await fetch(`${API_BASE_GLOBAL}/models`)
+      if (!res.ok) throw new Error('Gagal memuat katalog')
+      const models: ModelEntry[] = await res.json()
+
+      catalogLoading.style.display = 'none'
+
+      if (models.length === 0) {
+        catalogEmpty.style.display = 'block'
+        catalogCount.textContent = '0 model'
+        return
+      }
+
+      catalogCount.textContent = `${models.length} model`
+      catalogGrid.style.display = 'grid'
+
+      for (const model of models) {
+        const card = document.createElement('div')
+        card.className = 'catalog-card' + (model.id === activeModelId ? ' active' : '')
+        card.dataset.modelId = model.id
+        card.dataset.modelPath = model.modelPath
+
+        // Thumbnail atau placeholder
+        const initials = model.name.slice(0, 2).toUpperCase()
+        const placeholderHtml = `<div class="catalog-thumb-placeholder"><span style="font-size:28px;z-index:1">${initials}</span></div>`
+        let thumbHtml = ''
+        if (model.thumbnail) {
+          thumbHtml = `<img class="catalog-thumb" src="${model.thumbnail}" alt="${model.name}" loading="lazy" decoding="async" width="160" height="160" onerror="this.parentElement.querySelector('.catalog-thumb-placeholder').style.display='flex';this.style.display='none'">`
+          thumbHtml += `<div class="catalog-thumb-placeholder" style="display:none"><span style="font-size:28px;z-index:1">${initials}</span></div>`
+        } else {
+          thumbHtml = placeholderHtml
+        }
+
+        card.innerHTML = `
+          ${thumbHtml}
+          <div class="catalog-info">
+            <div class="catalog-name">${model.name}</div>
+            <div class="catalog-desc">${model.description || model.id}</div>
+          </div>
+        `
+
+        card.addEventListener('click', async () => {
+          if (card.classList.contains('active') || card.classList.contains('loading')) return
+
+          // Mark loading
+          card.classList.add('loading')
+          modelLoadingOverlay.classList.add('visible')
+
+          try {
+            await app.loadModelFromPath(model.modelPath)
+            activeModelId = model.id
+
+            // Update active state on all cards
+            catalogGrid.querySelectorAll('.catalog-card').forEach(c => c.classList.remove('active'))
+            card.classList.add('active')
+
+            // Update model status bar
+            modelStatus.textContent = `Model: ${model.name}`
+            modelDot.classList.add('connected')
+
+            // Update debug panel buttons
+            initDebugPanel(app)
+            logMcpActivity('api', `Katalog - Berhasil memuat model: ${model.name}`)
+
+            // Tutup modal setelah sukses
+            setTimeout(() => { overlay.classList.remove('open') }, 300)
+          } catch (err: any) {
+            logMcpActivity('error', `Katalog - Gagal memuat model ${model.name}: ${err.message}`)
+            alert(`Gagal memuat model ${model.name}:\n${err.message}`)
+          } finally {
+            card.classList.remove('loading')
+            modelLoadingOverlay.classList.remove('visible')
+          }
+        })
+
+        catalogGrid.appendChild(card)
+      }
+    } catch (err: any) {
+      catalogLoading.style.display = 'none'
+      catalogEmpty.style.display = 'block'
+      catalogEmpty.textContent = `Gagal memuat katalog: ${err.message}`
+      logMcpActivity('error', `Katalog - ${err.message}`)
+    }
+  }
+
+  // Buka katalog
+  catalogBtn.addEventListener('click', () => {
+    overlay.classList.add('open')
+    loadCatalog()
+  })
+
+  // Tutup katalog
+  closeCatalogBtn.addEventListener('click', () => overlay.classList.remove('open'))
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.classList.remove('open')
+  })
+
+  // Tutup dengan Escape
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && overlay.classList.contains('open')) {
+      overlay.classList.remove('open')
+    }
+  })
+}
+
 async function main() {
+
   setupAudioUnlock()
 
   // 初始化 Live2D
@@ -546,6 +813,7 @@ async function main() {
     initMouseFollow(app)
     initClickInteraction(app)
     initChatPanel(app)
+    initModelCatalog(app)
 
     hitareaToggle.addEventListener('change', () => {
       app.showHitAreaOverlay(hitareaToggle.checked)
@@ -562,6 +830,7 @@ async function main() {
   // 绑定命令处理器（包装一层，同时更新 UI）
   const rawHandler = createCommandHandler(app)
   wsClient.setCommandHandler(async (command) => {
+    logMcpActivity('ws_recv', `WS Command - Tipe: ${command.type}, Parameter: ${JSON.stringify(command.params)}`);
     const response = await rawHandler(command)
 
     // 更新状态栏
@@ -575,6 +844,9 @@ async function main() {
         currentMotion = '-'
       }
       updateStateBar()
+      logMcpActivity('ws_recv', `WS Command - Sukses menjalankan aksi: ${command.type}`);
+    } else {
+      logMcpActivity('error', `WS Command - Gagal menjalankan aksi ${command.type}: ${response.error || 'Unknown error'}`);
     }
 
     return response
@@ -584,11 +856,12 @@ async function main() {
     wsDot.classList.add('connected')
     chatStatusDot.classList.add('connected')
     wsStatus.textContent = 'WebSocket Terhubung'
+    logMcpActivity('ws_send', 'WS Bridge - Terhubung ke WebSocket bridge!');
 
-    // Kirim notifikasi siap, menyertakan info model
     const modelInfo = app.getModelInfo()
     if (modelInfo) {
       wsClient.sendReady(modelInfo)
+      logMcpActivity('ws_send', `WS Bridge - sendReady -> modelInfo: ${modelInfo.expressions.length} ekspresi, ${Object.keys(modelInfo.motionGroups).length} gerakan`);
     }
   })
 
@@ -596,6 +869,12 @@ async function main() {
     wsDot.classList.remove('connected')
     chatStatusDot.classList.remove('connected')
     wsStatus.textContent = 'WebSocket Terputus (Mencoba menghubungkan kembali...)'
+    logMcpActivity('error', 'WS Bridge - Terputus dari WebSocket bridge!');
+  })
+
+  // Tangkap log real-time dari backend dan tampilkan di panel
+  wsClient.onLog((logType, message) => {
+    logMcpActivity(logType, message)
   })
 
   wsClient.connect()
