@@ -130,6 +130,25 @@ export function isRendererConnected(): boolean {
   return rendererSocket !== null && rendererSocket.readyState === WebSocket.OPEN
 }
 
+export function logMcpActivityToFrontend(
+  type: 'error' | 'ws_recv' | 'ws_send' | 'api' | 'rvc',
+  message: string
+): void {
+  if (rendererSocket && rendererSocket.readyState === WebSocket.OPEN) {
+    try {
+      rendererSocket.send(
+        JSON.stringify({
+          type: 'mcpLog',
+          logType: type,
+          message,
+        })
+      )
+    } catch (e) {
+      console.error('[WS Bridge] Failed to send log to frontend:', e)
+    }
+  }
+}
+
 export function closeWebSocketServer(): Promise<void> {
   return new Promise((resolve) => {
     if (!wss) {
